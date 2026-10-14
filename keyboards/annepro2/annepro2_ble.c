@@ -68,6 +68,11 @@ static const uint8_t ble_mcu_get_version[11] = {
     0x01, 0x03, 0x02,  /* GLOBAL, version request (the stock firmware sends it with 02 01 02) */
 };
 
+static const uint8_t ble_mcu_battery[10] = {
+    0x7b, 0x12, 0x53, 0x00, 0x04, 0x00, 0x00, 0x7d,
+    0x01, 0x05,  /* GLOBAL, battery; followed by the raw 12-bit ADC reading, little-endian */
+};
+
 static const uint8_t ble_mcu_start_broadcast[10] = {
     0x7b, 0x12, 0x53, 0x00, 0x03, 0x00, 0x00, 0x7d,
     0x40, 0x01,  /* BLE, broadcast; followed by: port(0-3), 0x00 */
@@ -108,6 +113,14 @@ static bool lastNkroStatus = false;
 void annepro2_ble_bootload(void) { sdWrite(&SD1, ble_mcu_bootload, sizeof(ble_mcu_bootload)); }
 
 void annepro2_ble_startup(void) { sdWrite(&SD1, ble_mcu_wakeup, sizeof(ble_mcu_wakeup)); }
+
+void annepro2_ble_send_battery(uint16_t raw) {
+    uint8_t buf[sizeof(ble_mcu_battery) + 2];
+    memcpy(buf, ble_mcu_battery, sizeof(ble_mcu_battery));
+    buf[sizeof(ble_mcu_battery)]     = raw & 0xff;
+    buf[sizeof(ble_mcu_battery) + 1] = raw >> 8;
+    sdWrite(&SD1, buf, sizeof(buf));
+}
 
 void annepro2_ble_request_version(void) { sdWrite(&SD1, ble_mcu_get_version, sizeof(ble_mcu_get_version)); }
 

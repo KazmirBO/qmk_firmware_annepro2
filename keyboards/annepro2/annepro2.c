@@ -17,6 +17,9 @@
 #include "hal.h"
 #include "annepro2.h"
 #include "annepro2_ble.h"
+#ifdef AP2_BLE_BATTERY
+#    include "annepro2_battery.h"
+#endif
 #include "ap2_led.h"
 #include "protocol.h"
 
@@ -52,6 +55,11 @@ static uint32_t ble_ping_timer;
 bool     annepro2_ble_is_ready(void) { return ble_ready; }
 uint16_t annepro2_ble_version(void) { return ble_version; }
 
+#ifdef AP2_BLE_BATTERY
+static bool     battery_send_now = true;
+static uint32_t battery_timer;
+#endif
+
 static uint8_t ble_rx[BLE_RX_HEADER_SIZE + BLE_RX_BODY_MAX];
 static uint8_t ble_rx_pos;
 
@@ -67,6 +75,9 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
             switch (sub) {
                 case BLE_STS_ID_CONNECT:
                     ap2_led_cancel_blink();
+#ifdef AP2_BLE_BATTERY
+                    battery_send_now = true;
+#endif
                     break;
                 case BLE_STS_ID_CAPSLOCK:
                     ble_capslock = (bool)d0;
@@ -108,6 +119,20 @@ static void ble_rx_byte(uint8_t byte) {
 static void ble_poll(void) {
     while (!sdGetWouldBlock(&SD1)) ble_rx_byte(sdGet(&SD1));
 }
+
+#ifdef AP2_BLE_BATTERY
+/* Send the battery reading to the BLE MCU (01 05) after the handshake, on connect and periodically. */
+static void battery_task(void) {
+    if (!ble_ready) return;
+    if (!battery_send_now && timer_elapsed32(battery_timer) < AP2_BATTERY_INTERVAL_MS) return;
+    battery_send_now = false;
+    battery_timer    = timer_read32();
+    uint16_t raw;
+    if (annepro2_battery_read(&raw)) {
+        annepro2_ble_send_battery((uint16_t)((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN));
+    }
+}
+#endif
 
 static void ble_handshake_task(void) {
     if (ble_ready || ble_ping_count >= AP2_BLE_HANDSHAKE_TRIES) return;
@@ -162,6 +187,9 @@ void keyboard_pre_init_kb(void) {
 }
 
 void keyboard_post_init_kb(void) {
+#ifdef AP2_BLE_BATTERY
+    annepro2_battery_init();
+#endif
     // Start BLE UART
     sdStart(&SD1, &uart_115200_config);
     annepro2_ble_startup();
@@ -236,6 +264,9 @@ static void ap2_slot_tick(void) {
 void matrix_scan_kb(void) {
     ble_poll();
     ble_handshake_task();
+#ifdef AP2_BLE_BATTERY
+    battery_task();
+#endif
 #ifdef AP2_BLE_SLOT_TAP_HOLD
     ap2_slot_tick();
 #endif

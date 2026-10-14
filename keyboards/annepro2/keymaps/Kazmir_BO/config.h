@@ -49,3 +49,6 @@
 
 /* Bluetooth slot keys as in the stock firmware: tap connects, hold (500 ms) starts pairing. */
 #define AP2_BLE_SLOT_TAP_HOLD
+
+/* Send the battery level (ADC on PA7) to the Bluetooth MCU, so that the host can show it. C18 only. */
+#define AP2_BLE_BATTERY

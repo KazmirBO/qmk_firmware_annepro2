@@ -16,6 +16,7 @@ PROGRAM_CMD = annepro2_tools --boot $(BUILD_DIR)/$(TARGET).bin
 # Anne Pro 2
 SRC = \
 	annepro2_ble.c \
+	annepro2_battery.c \
 	ap2_led.c \
 	protocol.c \
 	rgb_driver.c \

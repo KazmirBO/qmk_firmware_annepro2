@@ -21,6 +21,7 @@
 void annepro2_ble_bootload(void);
 void annepro2_ble_startup(void);
 void annepro2_ble_request_version(void);
+void annepro2_ble_send_battery(uint16_t raw);
 bool annepro2_ble_is_ready(void);
 uint16_t annepro2_ble_version(void);
 void annepro2_ble_broadcast(uint8_t port);
