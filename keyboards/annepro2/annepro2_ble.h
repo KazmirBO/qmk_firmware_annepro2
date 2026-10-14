@@ -20,7 +20,11 @@
 
 void annepro2_ble_bootload(void);
 void annepro2_ble_startup(void);
+void annepro2_ble_request_version(void);
+bool annepro2_ble_is_ready(void);
+uint16_t annepro2_ble_version(void);
 void annepro2_ble_broadcast(uint8_t port);
+void annepro2_ble_pair(uint8_t port);
 void annepro2_ble_connect(uint8_t port);
 void annepro2_ble_disconnect(void);
 void annepro2_ble_unpair(void);
