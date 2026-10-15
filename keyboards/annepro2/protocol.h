@@ -121,5 +121,6 @@ extern void proto_consume(protocol_t *proto, uint8_t byte);
 /* Prolonged silence - reset state */
 extern void proto_silence(protocol_t *proto);
 
-/* Transmit message */
-extern void proto_tx(uint8_t cmd, const unsigned char *buf, int payload_size, int retries);
+/* Transmit message; count controls how many times it is sent (no ACK mechanism,
+ * higher count reduces risk of loss on noisy UART lines). */
+extern void proto_tx(uint8_t cmd, const unsigned char *buf, int payload_size, int count);

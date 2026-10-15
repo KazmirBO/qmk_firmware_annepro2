@@ -28,15 +28,19 @@ void proto_init(protocol_t *proto, void (*callback)(const message_t *)) {
 }
 
 static uint8_t msg_id = 0;
-void           proto_tx(uint8_t cmd, const unsigned char *buf, int payload_size, int retries) {
+void           proto_tx(uint8_t cmd, const unsigned char *buf, int payload_size, int count) {
     chDbgCheck(payload_size <= MAX_PAYLOAD_SIZE);
+    /* chDbgCheck is a no-op in release builds; clamp so an oversized payload can
+     * never overflow the uint8_t size field or desync the receiver's FSM. */
+    if (payload_size > MAX_PAYLOAD_SIZE) payload_size = MAX_PAYLOAD_SIZE;
 
     const uint8_t header[5] = {
         0x7A, 0x1D, cmd, ++msg_id, payload_size,
     };
 
-    /* We don't implement ACKs, yet some messages should not be lost. */
-    for (int i = 0; i < retries; i++) {
+    /* No ACK mechanism: send count times to reduce risk of loss.
+     * Receiver deduplicates by msg_id. */
+    for (int i = 0; i < count; i++) {
         sdWrite(&PROTOCOL_SD, header, sizeof(header));
         if (payload_size) sdWrite(&PROTOCOL_SD, buf, payload_size);
     }
