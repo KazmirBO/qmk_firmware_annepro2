@@ -134,6 +134,43 @@ static void battery_task(void) {
 }
 #endif
 
+#ifdef AP2_BLE_BATTERY
+/* Stock behaviour of the battery key: show the level on the number row, press again to hide it. */
+#    ifndef AP2_BATTERY_SHOW_MS
+#        define AP2_BATTERY_SHOW_MS 3000
+#    endif
+
+static bool     battery_shown;
+static uint32_t battery_shown_timer;
+
+static void battery_hide(void) {
+    for (uint8_t col = 1; col <= 10; col++) ap2_led_unset_sticky_key(0, col);
+    battery_shown = false;
+}
+
+static void battery_show(void) {
+    uint16_t raw;
+    if (!annepro2_battery_read(&raw)) return;
+    const uint8_t percent = annepro2_battery_percent((uint16_t)((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN));
+    const uint8_t lit     = (percent + 5) / 10; /* keys 1..0, one key per 10 % */
+    ap2_led_t     color   = {.p.blue = 0x00, .p.green = 0xff, .p.red = 0x00, .p.alpha = 0xff};
+    if (percent < 20) {
+        color.p.green = 0x00;
+        color.p.red   = 0xff;
+    } else if (percent < 50) {
+        color.p.red = 0xff;
+    }
+    const ap2_led_t off = {.p.blue = 0x10, .p.green = 0x10, .p.red = 0x10, .p.alpha = 0xff};
+    for (uint8_t i = 0; i < 10; i++) ap2_led_sticky_set_key(0, 1 + i, i < lit ? color : off);
+    battery_shown       = true;
+    battery_shown_timer = timer_read32();
+}
+
+static void battery_show_task(void) {
+    if (battery_shown && timer_elapsed32(battery_shown_timer) >= AP2_BATTERY_SHOW_MS) battery_hide();
+}
+#endif
+
 static void ble_handshake_task(void) {
     if (ble_ready || ble_ping_count >= AP2_BLE_HANDSHAKE_TRIES) return;
     const uint16_t interval = ble_ping_count < 5 ? 50 : 500;
@@ -266,6 +303,7 @@ void matrix_scan_kb(void) {
     ble_handshake_task();
 #ifdef AP2_BLE_BATTERY
     battery_task();
+    battery_show_task();
 #endif
 #ifdef AP2_BLE_SLOT_TAP_HOLD
     ap2_slot_tick();
@@ -309,6 +347,16 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 ap2_led_blink(record->event.key.row, record->event.key.col, blue, 8, 50);
                 return false;
             }
+#endif
+
+#ifdef AP2_BLE_BATTERY
+            case KC_AP2_BATT:
+                if (battery_shown) {
+                    battery_hide();
+                } else {
+                    battery_show();
+                }
+                return false;
 #endif
 
             case KC_AP2_USB:

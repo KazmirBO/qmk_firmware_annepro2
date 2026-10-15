@@ -70,4 +70,5 @@ enum AP2KeyCodes {
     KC_AP_RGB_VAD,
     KC_AP_RGB_TOG,
     KC_AP_RGB_MOD,
+    KC_AP2_BATT, /* shows the battery level on the number row (needs AP2_BLE_BATTERY) */
 };
