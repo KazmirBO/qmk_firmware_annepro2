@@ -16,40 +16,52 @@
 
 #ifdef RGB_MATRIX_ENABLE
 
+#    include <string.h>
 #    include "rgb_matrix.h"
 #    include "ap2_led.h"
 
-uint8_t led_pos[RGB_MATRIX_LED_COUNT];
+static uint8_t led_pos[RGB_MATRIX_LED_COUNT];
+static uint8_t led_row[RGB_MATRIX_LED_COUNT];
 
-void init(void) {
+/* Bitmask of rows with pending color changes; bit N = row N dirty */
+static uint8_t dirty_rows = 0;
+
+static void init(void) {
+    memset(led_row, 0xff, sizeof(led_row));
     unsigned int i = 0;
     for (unsigned int y = 0; y < NUM_ROW; y++) {
         for (unsigned int x = 0; x < NUM_COLUMN; x++) {
             if (g_led_config.matrix_co[y][x] != NO_LED) {
                 led_pos[g_led_config.matrix_co[y][x]] = i;
+                led_row[g_led_config.matrix_co[y][x]] = y;
             }
             i++;
         }
     }
 }
 
-void flush(void) {
-    for (uint8_t row = 0; row < NUM_ROW; row++)
-        ap2_led_colors_set_row(row);
+static void flush(void) {
+    for (uint8_t row = 0; row < NUM_ROW; row++) {
+        if (dirty_rows & (1 << row)) {
+            ap2_led_colors_set_row(row);
+            dirty_rows &= ~(1 << row);
+        }
+    }
 }
 
-void set_color(int index, uint8_t r, uint8_t g, uint8_t b) {
-    led_colors[led_pos[index]] = (ap2_led_t){
-        .p.blue  = b,
-        .p.red   = r,
-        .p.green = g,
-        .p.alpha = 0xff,
-    };
+static inline ap2_led_t pack_color(uint8_t r, uint8_t g, uint8_t b) {
+    return (ap2_led_t){.p.blue = b, .p.green = g, .p.red = r, .p.alpha = 0xff};
 }
 
-void set_color_all(uint8_t r, uint8_t g, uint8_t b) {
-    for (int i = 0; i < RGB_MATRIX_LED_COUNT; i++)
-        set_color(i, r, g, b);
+static void set_color(int index, uint8_t r, uint8_t g, uint8_t b) {
+    if (led_row[index] == 0xff) return;
+    led_colors[led_pos[index]] = pack_color(r, g, b);
+    dirty_rows |= (1 << led_row[index]);
+}
+
+static void set_color_all(uint8_t r, uint8_t g, uint8_t b) {
+    ap2_led_colors_set_mono(pack_color(r, g, b));
+    dirty_rows = 0;
 }
 
 const rgb_matrix_driver_t rgb_matrix_driver = {
