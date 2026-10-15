@@ -97,11 +97,33 @@ bool annepro2_battery_read(uint16_t *raw) {
     return false;
 }
 
-uint16_t annepro2_battery_scaled(uint16_t raw) { return (uint16_t)((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN); }
+/* Voltage as the BLE MCU computes it from the raw reading: U = raw * 2 * 3.1 / 4095, in millivolts. */
+#    define AP2_BATTERY_MV(raw) ((uint32_t)(raw) * 6200u / 4095u)
+#    define AP2_BATTERY_RAW(mv) ((uint32_t)(mv) * 4095u / 6200u)
+
+/* The BLE MCU reports its first step (10 %) from 3.4 V and 0 % below it; the correction is applied up to this voltage. */
+#    define AP2_BATTERY_BLE_FIRST_STEP_MV 3400u
+#    define AP2_BATTERY_CORRECTION_END_MV 3600u
+
+uint16_t annepro2_battery_scaled(uint16_t raw) {
+    uint32_t mv = AP2_BATTERY_MV((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN);
+#    if AP2_BATTERY_EMPTY_MV < AP2_BATTERY_BLE_FIRST_STEP_MV
+    if (mv < AP2_BATTERY_CORRECTION_END_MV) {
+        if (mv >= AP2_BATTERY_EMPTY_MV) {
+            /* EMPTY_MV..3.6 V becomes 3.4..3.6 V */
+            mv = AP2_BATTERY_BLE_FIRST_STEP_MV + (mv - AP2_BATTERY_EMPTY_MV) * (AP2_BATTERY_CORRECTION_END_MV - AP2_BATTERY_BLE_FIRST_STEP_MV) / (AP2_BATTERY_CORRECTION_END_MV - AP2_BATTERY_EMPTY_MV);
+        } else {
+            /* below EMPTY_MV: just under the first step, so 0 % */
+            mv = mv * (AP2_BATTERY_BLE_FIRST_STEP_MV - 1) / AP2_BATTERY_EMPTY_MV;
+        }
+    }
+#    endif
+    return (uint16_t)AP2_BATTERY_RAW(mv);
+}
 
 uint8_t annepro2_battery_percent(uint16_t raw) {
-    /* Stock formula: U = raw * 3.1 * 2.02 / 4094, here in millivolts. */
-    const uint32_t mv = (uint32_t)raw * 6262u / 4094u;
+    /* The same voltage as the BLE MCU sees, so that the host and the indicator agree. */
+    const uint32_t mv = AP2_BATTERY_MV(raw);
     static const struct {
         uint16_t mv;
         uint8_t  percent;

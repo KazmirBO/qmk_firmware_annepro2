@@ -31,6 +31,13 @@
 #    define AP2_BATTERY_SCALE_DEN 1
 #endif
 
+/* The BLE MCU shows 0 % below 3.4 V, but the cell can be used longer. Readings between this voltage and 3.6 V are
+ * stretched so that the host and the indicator keep showing a low level down to AP2_BATTERY_EMPTY_MV and show 0 % only
+ * below it. The curve above 3.6 V does not change. Set it to 3400 or more to turn the correction off. */
+#ifndef AP2_BATTERY_EMPTY_MV
+#    define AP2_BATTERY_EMPTY_MV 3200
+#endif
+
 #ifdef AP2_BLE_BATTERY
 
 #    ifndef AP2_HAS_BATTERY_ADC
@@ -39,8 +46,8 @@
 
 void     annepro2_battery_init(void);
 bool     annepro2_battery_read(uint16_t *raw);   /* trimmed mean of 8 samples, false on timeout */
-uint16_t annepro2_battery_scaled(uint16_t raw);  /* raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN */
-uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100, the curve used by the stock firmware */
+uint16_t annepro2_battery_scaled(uint16_t raw);  /* calibrated reading: the scale and the low end correction */
+uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100 for a calibrated reading, the curve of the stock firmware */
 
 void annepro2_battery_task(void);           /* periodic send to the BLE MCU and hiding of the indicator */
 void annepro2_battery_request_send(void);   /* send the next reading right away, e.g. after a connection */
