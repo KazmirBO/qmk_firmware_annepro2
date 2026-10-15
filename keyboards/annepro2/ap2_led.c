@@ -15,7 +15,6 @@
  */
 
 #include <string.h>
-#include <stdio.h>
 #include "hal.h"
 #include "annepro2.h"
 #include "ap2_led.h"
@@ -28,6 +27,7 @@ ap2_led_status_t ap2_led_status;
 void led_command_callback(const message_t *msg) {
     switch (msg->command) {
         case CMD_LED_STATUS:
+            if (msg->payload_size < 6) break;
             ap2_led_status.amount_of_profiles = msg->payload[0];
             ap2_led_status.current_profile    = msg->payload[1];
             ap2_led_status.matrix_enabled     = msg->payload[2];
@@ -38,15 +38,14 @@ void led_command_callback(const message_t *msg) {
 
 #ifdef CONSOLE_ENABLE
         case CMD_LED_DEBUG:
-            /* TODO: Don't use printf. */
-            printf("LED:");
+            uprintf("LED:");
             for (int i = 0; i < msg->payload_size; i++) {
-                printf("%02x ", msg->payload[i]);
+                uprintf("%02x ", msg->payload[i]);
             }
             for (int i = 0; i < msg->payload_size; i++) {
-                printf("%c", msg->payload[i]);
+                uprintf("%c", msg->payload[i]);
             }
-            printf("\n");
+            uprintf("\n");
             break;
 #endif
     }
@@ -69,6 +68,7 @@ void ap2_led_next_animation_speed(void) { proto_tx(CMD_LED_NEXT_ANIMATION_SPEED,
 void ap2_led_prev_profile(void) { proto_tx(CMD_LED_PREV_PROFILE, NULL, 0, 3); }
 
 void ap2_led_mask_set_key(uint8_t row, uint8_t col, ap2_led_t color) {
+    led_mask[ROWCOL2IDX(row, col)] = color;
     uint8_t payload[] = {row, col, color.p.blue, color.p.green, color.p.red, color.p.alpha};
     proto_tx(CMD_LED_MASK_SET_KEY, payload, sizeof(payload), 1);
 }
@@ -83,13 +83,17 @@ void ap2_led_mask_set_row(uint8_t row) {
 
 /* Synchronize all rows */
 void ap2_led_mask_set_all(void) {
-    for (int row = 0; row < 5; row++) ap2_led_mask_set_row(row);
+    for (int row = 0; row < NUM_ROW; row++) ap2_led_mask_set_row(row);
 }
 
 /* Set all keys to a given color */
-void ap2_led_mask_set_mono(const ap2_led_t color) { proto_tx(CMD_LED_MASK_SET_MONO, (uint8_t *)&color, sizeof(color), 1); }
+void ap2_led_mask_set_mono(const ap2_led_t color) {
+    for (int i = 0; i < KEY_COUNT; i++) led_mask[i] = color;
+    proto_tx(CMD_LED_MASK_SET_MONO, (uint8_t *)&color, sizeof(color), 1);
+}
 
 void ap2_led_colors_set_key(uint8_t row, uint8_t col, ap2_led_t color) {
+    led_colors[ROWCOL2IDX(row, col)] = color;
     uint8_t payload[] = {row, col, color.p.blue, color.p.green, color.p.red, color.p.alpha};
     proto_tx(CMD_LED_COLOR_SET_KEY, payload, sizeof(payload), 1);
 }
@@ -104,11 +108,14 @@ void ap2_led_colors_set_row(uint8_t row) {
 
 /* Synchronize all rows */
 void ap2_led_colors_set_all(void) {
-    for (int row = 0; row < 5; row++) ap2_led_colors_set_row(row);
+    for (int row = 0; row < NUM_ROW; row++) ap2_led_colors_set_row(row);
 }
 
 /* Set all keys to a given color */
-void ap2_led_colors_set_mono(const ap2_led_t color) { proto_tx(CMD_LED_COLOR_SET_MONO, (uint8_t *)&color, sizeof(color), 1); }
+void ap2_led_colors_set_mono(const ap2_led_t color) {
+    for (int i = 0; i < KEY_COUNT; i++) led_colors[i] = color;
+    proto_tx(CMD_LED_COLOR_SET_MONO, (uint8_t *)&color, sizeof(color), 1);
+}
 
 void ap2_led_set_manual_control(uint8_t manual) {
     uint8_t payload[] = {manual};
@@ -117,6 +124,17 @@ void ap2_led_set_manual_control(uint8_t manual) {
 
 void ap2_led_blink(uint8_t row, uint8_t col, ap2_led_t color, uint8_t count, uint8_t hundredths) {
     uint8_t payload[] = {row, col, color.p.blue, color.p.green, color.p.red, color.p.alpha, count, hundredths};
+    proto_tx(CMD_LED_KEY_BLINK, payload, sizeof(payload), 1);
+}
+
+/* Cancel an ongoing blink. Sending CMD_LED_KEY_BLINK stops the current blink
+ * thread and starts a new one with the given payload. Using 8 zero bytes
+ * ensures payload[6] (count) is explicitly 0, so the new thread exits
+ * immediately without blinking anything. A 1-byte payload would leave
+ * payload[1..7] as stale data from the previous message, potentially causing
+ * an unintended ghost blink on a random key. */
+void ap2_led_cancel_blink(void) {
+    uint8_t payload[8] = {0};
     proto_tx(CMD_LED_KEY_BLINK, payload, sizeof(payload), 1);
 }
 
@@ -153,24 +171,10 @@ void ap2_led_unset_sticky_all(void) {
     proto_tx(CMD_LED_STICKY_UNSET_ALL, NULL, 0, 1);
 }
 
-/*
- * Currently keypresses are unified with other messages, still with single 1
- * byte payload. Transfer is normally fast enough for that to not be a problem -
- * especially with asynchronous message reading.
- *
- *
- * Previous description:
- * If enabled, this data is sent to LED MCU on every keypress.
- * In order to improve performance, both row and column values
- * are packed into a single byte.
- * Row range is [0, 4] and requires only 3 bits.
- * Column range is [0, 13] and requires 4 bits.
- *
- * In order to differentiate this command from regular commands,
- * the leftmost bit is set to 1 (0b10000000).
- * Following it are 3 bits of row and 4 bits of col.
- * 1 + 3 + 4 = 8 bits - only a single byte is sent for every keypress.
- */
+/* Forward a keypress to the Shine MCU for reactive lighting.
+ * Row [0,4] is packed into bits [6:4] and col [0,13] into bits [3:0]
+ * of a single payload byte. The command byte (CMD_LED_KEY_DOWN) identifies
+ * this as a keypress — no high-bit flag needed in the payload. */
 void ap2_led_forward_keypress(uint8_t row, uint8_t col) {
     const uint8_t payload = row << 4 | col;
     proto_tx(CMD_LED_KEY_DOWN, &payload, 1, 1);
