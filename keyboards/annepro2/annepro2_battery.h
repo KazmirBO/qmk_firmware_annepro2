@@ -1,9 +1,10 @@
 /*
- * Battery voltage measurement for the Anne Pro 2 (C18).
+ * Battery level of the Anne Pro 2 (C18).
  *
- * The battery is sampled by ADC channel 7 on PA7. The values below follow the stock firmware:
- * ADC clock HCLK/64, one conversion triggered by software, 12-bit result. The stock firmware
- * averages 8 samples without the smallest and the largest one.
+ * The battery is sampled by ADC channel 7 on PA7. The settings follow the stock firmware:
+ * ADC clock HCLK/64, one conversion triggered by software, 12-bit result, trimmed mean of 8 samples.
+ * The raw reading is sent to the BLE MCU (01 05), which turns it into the Battery Service level,
+ * and KC_AP2_BATT shows it on the number row.
  */
 
 #pragma once
@@ -16,8 +17,13 @@
 #    define AP2_BATTERY_INTERVAL_MS 60000
 #endif
 
+/* How long KC_AP2_BATT keeps the level on the number row. */
+#ifndef AP2_BATTERY_SHOW_MS
+#    define AP2_BATTERY_SHOW_MS 3000
+#endif
+
 /* The BLE MCU converts the raw reading with U = raw * 2 * 3.1 / 4095. If the real reference voltage
- * or divider differ, scale the reading with NUM/DEN before it is sent (default: unchanged). */
+ * or divider differ, scale the reading with NUM/DEN before it is used (default: unchanged). */
 #ifndef AP2_BATTERY_SCALE_NUM
 #    define AP2_BATTERY_SCALE_NUM 1
 #endif
@@ -25,6 +31,26 @@
 #    define AP2_BATTERY_SCALE_DEN 1
 #endif
 
-void    annepro2_battery_init(void);
-bool    annepro2_battery_read(uint16_t *raw);       /* trimmed mean of 8 samples, false on timeout */
-uint8_t annepro2_battery_percent(uint16_t raw);     /* 0-100, the curve used by the stock firmware */
+#ifdef AP2_BLE_BATTERY
+
+#    ifndef AP2_HAS_BATTERY_ADC
+#        error "AP2_BLE_BATTERY needs the battery ADC on PA7, which is known for the C18 only"
+#    endif
+
+void     annepro2_battery_init(void);
+bool     annepro2_battery_read(uint16_t *raw);   /* trimmed mean of 8 samples, false on timeout */
+uint16_t annepro2_battery_scaled(uint16_t raw);  /* raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN */
+uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100, the curve used by the stock firmware */
+
+void annepro2_battery_task(void);           /* periodic send to the BLE MCU and hiding of the indicator */
+void annepro2_battery_request_send(void);   /* send the next reading right away, e.g. after a connection */
+void annepro2_battery_toggle_display(void); /* KC_AP2_BATT */
+
+#else /* the option is off: the callers compile to nothing */
+
+static inline void annepro2_battery_init(void) {}
+static inline void annepro2_battery_task(void) {}
+static inline void annepro2_battery_request_send(void) {}
+static inline void annepro2_battery_toggle_display(void) {}
+
+#endif

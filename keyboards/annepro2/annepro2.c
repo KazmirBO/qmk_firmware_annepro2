@@ -17,9 +17,7 @@
 #include "hal.h"
 #include "annepro2.h"
 #include "annepro2_ble.h"
-#ifdef AP2_BLE_BATTERY
-#    include "annepro2_battery.h"
-#endif
+#include "annepro2_battery.h"
 #include "ap2_led.h"
 #include "protocol.h"
 
@@ -55,29 +53,35 @@ static uint32_t ble_ping_timer;
 bool     annepro2_ble_is_ready(void) { return ble_ready; }
 uint16_t annepro2_ble_version(void) { return ble_version; }
 
-#ifdef AP2_BLE_BATTERY
-static bool     battery_send_now = true;
-static uint32_t battery_timer;
-#endif
+static const ap2_led_t ap2_blue = {
+    .p.blue  = 0xff,
+    .p.red   = 0x00,
+    .p.green = 0x00,
+    .p.alpha = 0xff,
+};
+
+static void forward_reactive_keypress(const keyrecord_t *record) {
+    if (ap2_led_status.matrix_enabled && ap2_led_status.is_reactive) {
+        ap2_led_forward_keypress(record->event.key.row, record->event.key.col);
+    }
+}
 
 static uint8_t ble_rx[BLE_RX_HEADER_SIZE + BLE_RX_BODY_MAX];
 static uint8_t ble_rx_pos;
 
 static void ble_handle_frame(const uint8_t *f, uint16_t len) {
-    if (f[7] != BLE_SYNC_END) return; /* misframed */
-    const uint8_t cmd = f[8], sub = f[9];
+    if (f[BLE_RX_END] != BLE_SYNC_END) return; /* misframed */
+    const uint8_t cmd = f[BLE_RX_CMD], sub = f[BLE_RX_SUB];
     const uint8_t n   = len - 2; /* data bytes */
     if (n < 1) return;
-    const uint8_t d0 = f[10];
+    const uint8_t d0 = f[BLE_RX_DATA];
 
     switch (cmd) {
         case BLE_CMD_LED:
             switch (sub) {
                 case BLE_STS_ID_CONNECT:
                     ap2_led_cancel_blink();
-#ifdef AP2_BLE_BATTERY
-                    battery_send_now = true;
-#endif
+                    annepro2_battery_request_send();
                     break;
                 case BLE_STS_ID_CAPSLOCK:
                     ble_capslock = (bool)d0;
@@ -99,14 +103,14 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
 
 /* Feed one byte from the BLE MCU into the frame parser. */
 static void ble_rx_byte(uint8_t byte) {
-    if (ble_rx_pos == 0 && byte != BLE_SYNC_START) return;
+    if (ble_rx_pos == BLE_RX_SYNC && byte != BLE_SYNC_START) return;
     ble_rx[ble_rx_pos++] = byte;
-    if (ble_rx_pos == 2 && byte != 0x12 && byte != 0x10) {
+    if (ble_rx_pos == BLE_RX_TYPE + 1 && byte != BLE_TYPE_SINGLE && byte != BLE_TYPE_FRAGMENT) {
         ble_rx_pos = 0; /* the stock firmware accepts only these two frame types */
         return;
     }
     if (ble_rx_pos < BLE_RX_HEADER_SIZE) return;
-    const uint16_t len = ble_rx[4] | ((uint16_t)ble_rx[5] << 8);
+    const uint16_t len = ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble_rx[BLE_RX_LEN_HI] << 8);
     if (len < 2 || len > BLE_RX_BODY_MAX) {
         ble_rx_pos = 0; /* implausible length: wait for the next sync byte */
         return;
@@ -120,57 +124,6 @@ static void ble_poll(void) {
     while (!sdGetWouldBlock(&SD1)) ble_rx_byte(sdGet(&SD1));
 }
 
-#ifdef AP2_BLE_BATTERY
-/* Send the battery reading to the BLE MCU (01 05) after the handshake, on connect and periodically. */
-static void battery_task(void) {
-    if (!ble_ready) return;
-    if (!battery_send_now && timer_elapsed32(battery_timer) < AP2_BATTERY_INTERVAL_MS) return;
-    battery_send_now = false;
-    battery_timer    = timer_read32();
-    uint16_t raw;
-    if (annepro2_battery_read(&raw)) {
-        annepro2_ble_send_battery((uint16_t)((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN));
-    }
-}
-#endif
-
-#ifdef AP2_BLE_BATTERY
-/* Stock behaviour of the battery key: show the level on the number row, press again to hide it. */
-#    ifndef AP2_BATTERY_SHOW_MS
-#        define AP2_BATTERY_SHOW_MS 3000
-#    endif
-
-static bool     battery_shown;
-static uint32_t battery_shown_timer;
-
-static void battery_hide(void) {
-    for (uint8_t col = 1; col <= 10; col++) ap2_led_unset_sticky_key(0, col);
-    battery_shown = false;
-}
-
-static void battery_show(void) {
-    uint16_t raw;
-    if (!annepro2_battery_read(&raw)) return;
-    const uint8_t percent = annepro2_battery_percent((uint16_t)((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN));
-    const uint8_t lit     = (percent + 5) / 10; /* keys 1..0, one key per 10 % */
-    ap2_led_t     color   = {.p.blue = 0x00, .p.green = 0xff, .p.red = 0x00, .p.alpha = 0xff};
-    if (percent < 20) {
-        color.p.green = 0x00;
-        color.p.red   = 0xff;
-    } else if (percent < 50) {
-        color.p.red = 0xff;
-    }
-    const ap2_led_t off = {.p.blue = 0x10, .p.green = 0x10, .p.red = 0x10, .p.alpha = 0xff};
-    for (uint8_t i = 0; i < 10; i++) ap2_led_sticky_set_key(0, 1 + i, i < lit ? color : off);
-    battery_shown       = true;
-    battery_shown_timer = timer_read32();
-}
-
-static void battery_show_task(void) {
-    if (battery_shown && timer_elapsed32(battery_shown_timer) >= AP2_BATTERY_SHOW_MS) battery_hide();
-}
-#endif
-
 static void ble_handshake_task(void) {
     if (ble_ready || ble_ping_count >= AP2_BLE_HANDSHAKE_TRIES) return;
     const uint16_t interval = ble_ping_count < 5 ? 50 : 500;
@@ -180,7 +133,6 @@ static void ble_handshake_task(void) {
     annepro2_ble_startup();
     annepro2_ble_request_version();
 }
-
 
 void bootloader_jump(void) {
     // Send msg to shine to boot into IAP
@@ -224,9 +176,7 @@ void keyboard_pre_init_kb(void) {
 }
 
 void keyboard_post_init_kb(void) {
-#ifdef AP2_BLE_BATTERY
     annepro2_battery_init();
-#endif
     // Start BLE UART
     sdStart(&SD1, &uart_115200_config);
     annepro2_ble_startup();
@@ -262,37 +212,29 @@ static struct {
     uint32_t timer;
     uint8_t  row, col;
     bool     pending;
-} ap2_slot[4];
+} slots[4];
 
-static void ap2_slot_feedback(uint8_t row, uint8_t col) {
-    const ap2_led_t blue = {
-        .p.blue  = 0xff,
-        .p.red   = 0x00,
-        .p.green = 0x00,
-        .p.alpha = 0xff,
-    };
-    ap2_led_blink(row, col, blue, 8, 50);
-}
+static void slot_feedback(uint8_t row, uint8_t col) { ap2_led_blink(row, col, ap2_blue, 8, 50); }
 
-static void ap2_slot_event(uint8_t slot, keyrecord_t *record) {
+static void slot_event(uint8_t slot, keyrecord_t *record) {
     if (record->event.pressed) {
-        ap2_slot[slot].timer   = timer_read32();
-        ap2_slot[slot].row     = record->event.key.row;
-        ap2_slot[slot].col     = record->event.key.col;
-        ap2_slot[slot].pending = true;
-    } else if (ap2_slot[slot].pending) {
-        ap2_slot[slot].pending = false; /* released before the hold time: connect */
+        slots[slot].timer   = timer_read32();
+        slots[slot].row     = record->event.key.row;
+        slots[slot].col     = record->event.key.col;
+        slots[slot].pending = true;
+    } else if (slots[slot].pending) {
+        slots[slot].pending = false; /* released before the hold time: connect */
         annepro2_ble_connect(slot);
-        ap2_slot_feedback(ap2_slot[slot].row, ap2_slot[slot].col);
+        slot_feedback(slots[slot].row, slots[slot].col);
     }
 }
 
-static void ap2_slot_tick(void) {
+static void slot_tick(void) {
     for (uint8_t i = 0; i < 4; i++) {
-        if (ap2_slot[i].pending && timer_elapsed32(ap2_slot[i].timer) >= AP2_BLE_SLOT_HOLD_MS) {
-            ap2_slot[i].pending = false; /* held: pair */
+        if (slots[i].pending && timer_elapsed32(slots[i].timer) >= AP2_BLE_SLOT_HOLD_MS) {
+            slots[i].pending = false; /* held: pair */
             annepro2_ble_pair(i);
-            ap2_slot_feedback(ap2_slot[i].row, ap2_slot[i].col);
+            slot_feedback(slots[i].row, slots[i].col);
         }
     }
 }
@@ -301,12 +243,9 @@ static void ap2_slot_tick(void) {
 void matrix_scan_kb(void) {
     ble_poll();
     ble_handshake_task();
-#ifdef AP2_BLE_BATTERY
-    battery_task();
-    battery_show_task();
-#endif
+    annepro2_battery_task();
 #ifdef AP2_BLE_SLOT_TAP_HOLD
-    ap2_slot_tick();
+    slot_tick();
 #endif
 
     /* While there's data from LED keyboard sent - read it. */
@@ -322,42 +261,25 @@ void matrix_scan_kb(void) {
 bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
 #ifdef AP2_BLE_SLOT_TAP_HOLD
     if (keycode >= KC_AP2_BT1 && keycode <= KC_AP2_BT4) {
-        if (record->event.pressed && ap2_led_status.matrix_enabled && ap2_led_status.is_reactive) {
-            ap2_led_forward_keypress(record->event.key.row, record->event.key.col);
-        }
-        ap2_slot_event(keycode - KC_AP2_BT1, record);
+        if (record->event.pressed) forward_reactive_keypress(record);
+        slot_event(keycode - KC_AP2_BT1, record);
         return false;
     }
 #endif
     if (record->event.pressed) {
-        if (ap2_led_status.matrix_enabled && ap2_led_status.is_reactive) {
-            ap2_led_forward_keypress(record->event.key.row, record->event.key.col);
-        }
+        forward_reactive_keypress(record);
 
         switch (keycode) {
 #ifndef AP2_BLE_SLOT_TAP_HOLD
-            case KC_AP2_BT1 ... KC_AP2_BT4: {
-                const ap2_led_t blue = {
-                    .p.blue  = 0xff,
-                    .p.red   = 0x00,
-                    .p.green = 0x00,
-                    .p.alpha = 0xff,
-                };
+            case KC_AP2_BT1 ... KC_AP2_BT4:
                 annepro2_ble_broadcast(keycode - KC_AP2_BT1);
-                ap2_led_blink(record->event.key.row, record->event.key.col, blue, 8, 50);
+                ap2_led_blink(record->event.key.row, record->event.key.col, ap2_blue, 8, 50);
                 return false;
-            }
 #endif
 
-#ifdef AP2_BLE_BATTERY
             case KC_AP2_BATT:
-                if (battery_shown) {
-                    battery_hide();
-                } else {
-                    battery_show();
-                }
+                annepro2_battery_toggle_display();
                 return false;
-#endif
 
             case KC_AP2_USB:
                 annepro2_ble_disconnect();

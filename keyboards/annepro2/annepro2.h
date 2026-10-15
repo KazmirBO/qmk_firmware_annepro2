@@ -34,6 +34,26 @@
 #define BLE_RX_HEADER_SIZE 8
 #define BLE_RX_BODY_MAX    8 /* cmd + sub + up to 6 data bytes */
 
+/* Offsets in a received frame. */
+enum {
+    BLE_RX_SYNC   = 0,
+    BLE_RX_TYPE   = 1,
+    BLE_RX_ROUTE  = 2,
+    BLE_RX_SEQ    = 3,
+    BLE_RX_LEN_LO = 4,
+    BLE_RX_LEN_HI = 5,
+    BLE_RX_END    = 7,
+    BLE_RX_CMD    = 8,
+    BLE_RX_SUB    = 9,
+    BLE_RX_DATA   = 10,
+};
+
+/* Frame types the stock firmware accepts. */
+enum {
+    BLE_TYPE_SINGLE   = 0x12,
+    BLE_TYPE_FRAGMENT = 0x10,
+};
+
 extern bool ble_capslock;
 
 #define BLE_SYNC_START 0x7b

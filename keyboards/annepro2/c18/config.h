@@ -25,6 +25,9 @@
 #define LINE_BT_UART_TX A4  // Master TX, BLE RX
 #define LINE_BT_UART_RX A5  // Master RX, BLE TX
 
+// The battery is measured by ADC channel 7 on PA7 (known for the C18 only).
+#define AP2_HAS_BATTERY_ADC
+
 // Obins stock firmware has something similar to this already enabled, but disabled by default in QMK
 #define PERMISSIVE_HOLD
 

@@ -41,7 +41,7 @@ static host_driver_t ap2_ble_driver = {
  *
  *   [0x7b]       sync start
  *   [0x12]       channel byte (UART from Main MCU; bootload uses 0x10)
- *   [routing]    (target << 4) | source  →  0x53 = McuBle(5):McuMain(3)
+ *   [routing]    (target << 4) | source  =  0x53 = McuBle(5):McuMain(3)
  *   [0x00]       reserved (bootload uses 0x10)
  *   [size]       payload byte count (bytes that follow 0x7d)
  *   [0x00]       reserved
@@ -196,7 +196,7 @@ static uint8_t ap2_ble_leds(void) {
 
 static void ap2_ble_mouse(report_mouse_t *report) {}
 
-static inline uint16_t CONSUMER2AP2(uint16_t usage) {
+static inline uint8_t CONSUMER2AP2(uint16_t usage) {
     switch (usage) {
         case AUDIO_VOL_DOWN:
             return 0x04;

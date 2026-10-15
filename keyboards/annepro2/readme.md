@@ -16,6 +16,18 @@ If you want to compile the Anne Pro 2 C15 default keymap use:
 
     make annepro2/c15:default
 
+## Bluetooth and battery options
+
+Define these in the `config.h` of your keymap.
+
+| Option | Effect |
+|---|---|
+| `AP2_BLE_SLOT_TAP_HOLD` | The Bluetooth keys `KC_AP2_BT1` to `KC_AP2_BT4` work as in the stock firmware: a short press connects to the paired device, holding the key for `AP2_BLE_SLOT_HOLD_MS` (default 500) starts pairing. Without it the first press starts pairing and a second press on the same slot connects. |
+| `AP2_BLE_HANDSHAKE_TRIES` | How many times the wake-up and version request are repeated while the Bluetooth MCU has not reported its version (default 24). `annepro2_ble_is_ready()` and `annepro2_ble_version()` expose the result. |
+| `AP2_BLE_BATTERY` | C18 only. Reads the battery on PA7 and sends it to the Bluetooth MCU, so that the host can show the battery level; enables the `KC_AP2_BATT` key. Tuning: `AP2_BATTERY_INTERVAL_MS` (60000), `AP2_BATTERY_SHOW_MS` (3000), `AP2_BATTERY_SCALE_NUM` and `AP2_BATTERY_SCALE_DEN` (calibration, default 1:1). The Bluetooth MCU only lowers the level it reports until it restarts. |
+
+`KC_AP2_BATT` shows the battery level on the number row for a few seconds (one key per 10 %, green from 50 %, yellow from 20 %, red below); pressing it again hides the indicator. It does nothing unless `AP2_BLE_BATTERY` is defined.
+
 ## Installing
 
 ### Get AnnePro2 Tools
