@@ -43,6 +43,9 @@ static uint32_t fail_timer;
 static bool     send_now = true;
 static uint32_t send_timer;
 
+static uint16_t history[AP2_BATTERY_HISTORY];
+static uint8_t  history_len, history_pos;
+
 static bool     shown;
 static uint32_t shown_timer;
 
@@ -99,15 +102,18 @@ bool annepro2_battery_read(uint16_t *raw) {
 
 /* Voltage as the BLE MCU computes it from the raw reading: U = raw * 2 * 3.1 / 4095, in millivolts. */
 #    define AP2_BATTERY_MV(raw) ((uint32_t)(raw) * 6200u / 4095u)
-#    define AP2_BATTERY_RAW(mv) ((uint32_t)(mv) * 4095u / 6200u)
+/* Rounded up, so that AP2_BATTERY_MV(AP2_BATTERY_RAW(mv)) gives mv back and a voltage on a step stays on it. */
+#    define AP2_BATTERY_RAW(mv) (((uint32_t)(mv) * 4095u + 6199u) / 6200u)
 
 /* The BLE MCU reports its first step (10 %) from 3.4 V and 0 % below it; the correction is applied up to this voltage. */
 #    define AP2_BATTERY_BLE_FIRST_STEP_MV 3400u
 #    define AP2_BATTERY_CORRECTION_END_MV 3600u
 
 uint16_t annepro2_battery_scaled(uint16_t raw) {
-    uint32_t mv = AP2_BATTERY_MV((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN);
+    uint32_t scaled = (uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN;
+    if (scaled > AP2_ADC_RESULT_MASK) scaled = AP2_ADC_RESULT_MASK; /* the BLE MCU expects a 12-bit reading */
 #    if AP2_BATTERY_EMPTY_MV < AP2_BATTERY_BLE_FIRST_STEP_MV
+    uint32_t mv = AP2_BATTERY_MV(scaled);
     if (mv < AP2_BATTERY_CORRECTION_END_MV) {
         if (mv >= AP2_BATTERY_EMPTY_MV) {
             /* EMPTY_MV..3.6 V becomes 3.4..3.6 V */
@@ -116,9 +122,10 @@ uint16_t annepro2_battery_scaled(uint16_t raw) {
             /* below EMPTY_MV: just under the first step, so 0 % */
             mv = mv * (AP2_BATTERY_BLE_FIRST_STEP_MV - 1) / AP2_BATTERY_EMPTY_MV;
         }
+        return (uint16_t)AP2_BATTERY_RAW(mv);
     }
 #    endif
-    return (uint16_t)AP2_BATTERY_RAW(mv);
+    return (uint16_t)scaled; /* above the correction the reading is not converted, so it does not lose precision */
 }
 
 uint8_t annepro2_battery_percent(uint16_t raw) {
@@ -168,6 +175,18 @@ void annepro2_battery_toggle_display(void) {
 
 void annepro2_battery_request_send(void) { send_now = true; }
 
+/* Store a calibrated reading and return the highest of the last AP2_BATTERY_HISTORY ones. */
+static uint16_t history_add(uint16_t value) {
+    history[history_pos] = value;
+    history_pos          = (history_pos + 1) % AP2_BATTERY_HISTORY;
+    if (history_len < AP2_BATTERY_HISTORY) history_len++;
+    uint16_t max = 0;
+    for (uint8_t i = 0; i < history_len; i++) {
+        if (history[i] > max) max = history[i];
+    }
+    return max;
+}
+
 void annepro2_battery_task(void) {
     if (shown && timer_elapsed32(shown_timer) >= AP2_BATTERY_SHOW_MS) hide_display();
 
@@ -176,7 +195,7 @@ void annepro2_battery_task(void) {
     send_now   = false;
     send_timer = timer_read32();
     uint16_t raw;
-    if (annepro2_battery_read(&raw)) annepro2_ble_send_battery(annepro2_battery_scaled(raw));
+    if (annepro2_battery_read(&raw)) annepro2_ble_send_battery(history_add(annepro2_battery_scaled(raw)));
 }
 
 #else

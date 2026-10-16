@@ -17,6 +17,13 @@
 #    define AP2_BATTERY_INTERVAL_MS 60000
 #endif
 
+/* The BLE MCU keeps the lowest level it was sent until it restarts, so a single low reading (for example while the LEDs
+ * draw a lot of current) would stay on the host. The highest of the last AP2_BATTERY_HISTORY readings is sent instead,
+ * so a lasting drop reaches the host after that many readings (5 minutes with the default interval). */
+#ifndef AP2_BATTERY_HISTORY
+#    define AP2_BATTERY_HISTORY 5
+#endif
+
 /* How long KC_AP2_BATT keeps the level on the number row. */
 #ifndef AP2_BATTERY_SHOW_MS
 #    define AP2_BATTERY_SHOW_MS 3000
@@ -46,7 +53,7 @@
 
 void     annepro2_battery_init(void);
 bool     annepro2_battery_read(uint16_t *raw);   /* trimmed mean of 8 samples, false on timeout */
-uint16_t annepro2_battery_scaled(uint16_t raw);  /* calibrated reading: the scale and the low end correction */
+uint16_t annepro2_battery_scaled(uint16_t raw);  /* calibrated 12-bit reading: the scale and the low end correction */
 uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100 for a calibrated reading, the curve of the stock firmware */
 
 void annepro2_battery_task(void);           /* periodic send to the BLE MCU and hiding of the indicator */
