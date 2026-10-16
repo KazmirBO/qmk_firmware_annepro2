@@ -40,12 +40,13 @@ static host_driver_t ap2_ble_driver = {
  * BLE MCU packet format (UART on SD1):
  *
  *   [0x7b]       sync start
- *   [0x12]       channel byte (UART from Main MCU; bootload uses 0x10)
+ *   [type]       0x12 single frame, 0x10 frame with a fragment counter (bootload)
  *   [routing]    (target << 4) | source  =  0x53 = McuBle(5):McuMain(3)
- *   [0x00]       reserved (bootload uses 0x10)
- *   [size]       payload byte count (bytes that follow 0x7d)
- *   [0x00]       reserved
- *   [seq]        sequence/flag byte (usually 0x00; wakeup uses 0x01)
+ *   [seq]        sequence byte, 0x00 here (bootload uses 0x10: one fragment, index 0)
+ *   [len lo]     length, little-endian: 2 (l2_cmd, cmd) + data bytes
+ *   [len hi]
+ *   [0x00]       zero in the stock firmware; the QMK wakeup has always sent 0x01,
+ *                and the BLE MCU does not check this byte
  *   [0x7d]       sync end
  *   [l2_cmd]     layer-2 command group: 0x02=FW, 0x10=KEYBOARD, 0x40=BLE
  *   [cmd]        specific command within group
@@ -75,12 +76,12 @@ static const uint8_t ble_mcu_battery[10] = {
 
 static const uint8_t ble_mcu_start_broadcast[10] = {
     0x7b, 0x12, 0x53, 0x00, 0x03, 0x00, 0x00, 0x7d,
-    0x40, 0x01,  /* BLE, broadcast; followed by: port(0-3), 0x00 */
+    0x40, 0x01,  /* BLE, broadcast (pairing); followed by the port (0-3) */
 };
 
 static const uint8_t ble_mcu_connect[10] = {
     0x7b, 0x12, 0x53, 0x00, 0x03, 0x00, 0x00, 0x7d,
-    0x40, 0x04,  /* BLE, connect; followed by: port(0-3), 0x00 */
+    0x40, 0x04,  /* BLE, connect; followed by the port (0-3) */
 };
 
 static const uint8_t ble_mcu_send_report[10] = {
@@ -124,10 +125,12 @@ void annepro2_ble_send_battery(uint16_t raw) {
 
 void annepro2_ble_request_version(void) { sdWrite(&SD1, ble_mcu_get_version, sizeof(ble_mcu_get_version)); }
 
-/* Start advertising on a slot without the "press twice to connect" shortcut. */
+/* Start advertising on a slot without the "press twice to connect" shortcut. The reports go to the BLE MCU from now
+ * on, as in the stock firmware, so that the host can be used as soon as it pairs, without another tap of the key. */
 void annepro2_ble_pair(uint8_t port) {
     if (port > 3) port = 3;
     ble_send_port_cmd(ble_mcu_start_broadcast, port);
+    ap2_ble_switch_ble_driver();
 }
 
 void annepro2_ble_broadcast(uint8_t port) {
@@ -166,11 +169,11 @@ void annepro2_ble_unpair(void) {
 /* ------------------- Static Function Implementation ----------------------- */
 #define BLE_CMD_HEADER_SIZE 10
 
+/* The length in the header (3) covers one data byte, the port, as in the frames of the stock firmware. */
 static void ble_send_port_cmd(const uint8_t *header, uint8_t port) {
-    uint8_t buf[BLE_CMD_HEADER_SIZE + 2];
+    uint8_t buf[BLE_CMD_HEADER_SIZE + 1];
     memcpy(buf, header, BLE_CMD_HEADER_SIZE);
-    buf[BLE_CMD_HEADER_SIZE]     = port;
-    buf[BLE_CMD_HEADER_SIZE + 1] = 0x00;
+    buf[BLE_CMD_HEADER_SIZE] = port;
     sdWrite(&SD1, buf, sizeof(buf));
 }
 

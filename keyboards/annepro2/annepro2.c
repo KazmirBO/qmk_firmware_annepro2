@@ -14,6 +14,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <string.h>
 #include "hal.h"
 #include "annepro2.h"
 #include "annepro2_ble.h"
@@ -66,11 +67,17 @@ static void forward_reactive_keypress(const keyrecord_t *record) {
     }
 }
 
-static uint8_t ble_rx[BLE_RX_HEADER_SIZE + BLE_RX_BODY_MAX];
-static uint8_t ble_rx_pos;
+/* A frame that stops arriving for this long is dropped, so that a lost byte does not swallow the next frame. */
+#ifndef AP2_BLE_RX_TIMEOUT_MS
+#    define AP2_BLE_RX_TIMEOUT_MS 100
+#endif
 
+static uint8_t  ble_rx[BLE_RX_HEADER_SIZE + BLE_RX_BODY_MAX];
+static uint8_t  ble_rx_pos;
+static uint32_t ble_rx_timer;
+
+/* The header is validated by ble_rx_byte() before the body is read. */
 static void ble_handle_frame(const uint8_t *f, uint16_t len) {
-    if (f[BLE_RX_END] != BLE_SYNC_END) return; /* misframed */
     const uint8_t cmd = f[BLE_RX_CMD], sub = f[BLE_RX_SUB];
     const uint8_t n   = len - 2; /* data bytes */
     if (n < 1) return;
@@ -101,27 +108,45 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
     }
 }
 
+static uint16_t ble_rx_len(void) { return ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble_rx[BLE_RX_LEN_HI] << 8); }
+
+/* Whether the bytes received so far can start a frame: the stock firmware accepts only the two frame types, and the
+ * header has to end with the sync byte and give a length that fits the buffer. */
+static bool ble_rx_prefix_valid(void) {
+    if (ble_rx[BLE_RX_SYNC] != BLE_SYNC_START) return false;
+    if (ble_rx_pos > BLE_RX_TYPE && ble_rx[BLE_RX_TYPE] != BLE_TYPE_SINGLE && ble_rx[BLE_RX_TYPE] != BLE_TYPE_FRAGMENT) return false;
+    if (ble_rx_pos < BLE_RX_HEADER_SIZE) return true;
+    const uint16_t len = ble_rx[BLE_RX_END] == BLE_SYNC_END ? ble_rx_len() : 0;
+    return len >= 2 && len <= BLE_RX_BODY_MAX;
+}
+
+/* Drop the bytes before the next sync byte, so that a frame starting inside a rejected header is not lost. */
+static void ble_rx_resync(void) {
+    uint8_t i = 1;
+    while (i < ble_rx_pos && ble_rx[i] != BLE_SYNC_START) i++;
+    memmove(ble_rx, ble_rx + i, ble_rx_pos - i);
+    ble_rx_pos -= i;
+}
+
 /* Feed one byte from the BLE MCU into the frame parser. */
 static void ble_rx_byte(uint8_t byte) {
-    if (ble_rx_pos == BLE_RX_SYNC && byte != BLE_SYNC_START) return;
+    if (ble_rx_pos == 0 && byte != BLE_SYNC_START) return;
     ble_rx[ble_rx_pos++] = byte;
-    if (ble_rx_pos == BLE_RX_TYPE + 1 && byte != BLE_TYPE_SINGLE && byte != BLE_TYPE_FRAGMENT) {
-        ble_rx_pos = 0; /* the stock firmware accepts only these two frame types */
-        return;
-    }
-    if (ble_rx_pos < BLE_RX_HEADER_SIZE) return;
-    const uint16_t len = ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble_rx[BLE_RX_LEN_HI] << 8);
-    if (len < 2 || len > BLE_RX_BODY_MAX) {
-        ble_rx_pos = 0; /* implausible length: wait for the next sync byte */
-        return;
-    }
-    if (ble_rx_pos < BLE_RX_HEADER_SIZE + len) return;
-    ble_handle_frame(ble_rx, len);
+    while (ble_rx_pos > 0 && !ble_rx_prefix_valid()) ble_rx_resync();
+    /* A rejected header leaves at most 7 bytes, so the frame can only complete with a byte appended here. */
+    if (ble_rx_pos < BLE_RX_HEADER_SIZE || ble_rx_pos < BLE_RX_HEADER_SIZE + ble_rx_len()) return;
+    ble_handle_frame(ble_rx, ble_rx_len());
     ble_rx_pos = 0;
 }
 
 static void ble_poll(void) {
+    if (sdGetWouldBlock(&SD1)) {
+        /* The rest of a frame normally follows within a few milliseconds. */
+        if (ble_rx_pos > 0 && timer_elapsed32(ble_rx_timer) >= AP2_BLE_RX_TIMEOUT_MS) ble_rx_pos = 0;
+        return;
+    }
     while (!sdGetWouldBlock(&SD1)) ble_rx_byte(sdGet(&SD1));
+    ble_rx_timer = timer_read32();
 }
 
 static void ble_handshake_task(void) {
@@ -193,7 +218,13 @@ void keyboard_post_init_kb(void) {
 
 #ifdef RGB_MATRIX_ENABLE
     ap2_led_set_manual_control(1);
-    ap2_led_enable();
+    /* Match the state rgb_matrix restored from EEPROM (QK_RGB_MATRIX_TOGGLE saves it), so that the toggle keys,
+     * which read rgb_matrix_is_enabled(), agree with the LED MCU after a restart. */
+    if (rgb_matrix_is_enabled()) {
+        ap2_led_enable();
+    } else {
+        ap2_led_disable();
+    }
 #endif
 
     keyboard_post_init_user();
@@ -253,7 +284,6 @@ void matrix_scan_kb(void) {
         uint8_t byte = sdGet(&SD0);
         proto_consume(&proto, byte);
     }
-
 
     matrix_scan_user();
 }
