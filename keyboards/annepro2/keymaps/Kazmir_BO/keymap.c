@@ -23,8 +23,10 @@ const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______,                            KC_ENT,                    _______, _______, MO(FN2), _______
     ),
 
+    /* KC_AP2_BT_UNPAIR (40 05) deletes the bonds of all four slots, so it is not bound next to the slot keys.
+     * Pairing a slot again replaces only the bond of that slot. */
     [FN2] = LAYOUT_60_ansi(
-        QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, KC_AP2_BT_UNPAIR, KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, KC_AP_LED_SPEED,
+        QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, XXXXXXX,          KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, KC_AP_LED_SPEED,
         _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
         _______, _______,    _______,    _______,    _______,    _______,          _______,    _______, _______, _______,       _______,       _______,       _______,
         _______,             _______,    _______,    _______,    _______,          _______,    _______, _______, _______,       _______,       _______,       _______,
@@ -44,7 +46,9 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 bool led_update_user(led_t leds) {
     static const ap2_led_t caps_on = {.p.red = 0x00, .p.green = 0x00, .p.blue = 0xff, .p.alpha = 0xff};
 
-    if (leds.caps_lock || ble_capslock) {
+    /* leds comes from the active host driver, so in Bluetooth mode it already holds the Caps Lock state of the
+     * Bluetooth host, and in USB mode it is not mixed with the state of a Bluetooth host left connected. */
+    if (leds.caps_lock) {
         ap2_led_sticky_set_key(2, 0, caps_on);
     } else {
         ap2_led_unset_sticky_key(2, 0);

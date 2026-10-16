@@ -1,54 +1,47 @@
 #pragma once
 
 #define USB_POLLING_INTERVAL_MS 1
-#define BLUETOOTH_POLLING_INTERVAL_MS 5
 #define USB_SUSPEND_WAKEUP_DELAY 0
 
 #define MATRIX_IO_DELAY 1
 #define DEBOUNCE 10
-#define QMK_KEYS_PER_SCAN 4
 
 #define TAPPING_TERM 100
-#define TAPPING_FORCE_HOLD
-#define QUICK_TAP_TERM 100
-#define PERMISSIVE_HOLD
+/* A tap followed by a hold of the same dual-role key always activates the hold action. */
+#define QUICK_TAP_TERM 0
 #define HOLD_ON_OTHER_KEY_PRESS
 
-#define NO_ACTION_MACRO
-#define NO_ACTION_FUNCTION
 #define NO_ACTION_ONESHOT
 #define NO_MUSIC_MODE
-#define DISABLE_LEADER
-#define DISABLE_SPACE_CADET
-#define NO_AUTO_SHIFT
-#define DISABLE_MAGIC_BOOTLOADER
 #define NO_SUSPEND_POWER_DOWN
 
 #define RGB_MATRIX_MAXIMUM_BRIGHTNESS 255
-#define ENABLE_RGB_MATRIX_SOLID_COLOR
 
 #define RGB_MATRIX_SLEEP
 #define RGB_MATRIX_TIMEOUT 180000
 
-#define DISABLE_RGB_MATRIX_MULTISPLASH
-#define DISABLE_RGB_MATRIX_SPLASH
-#define DISABLE_RGB_MATRIX_SOLID_MULTISPLASH
-#define DISABLE_RGB_MATRIX_DIGITAL_RAIN
-#define DISABLE_RGB_MATRIX_TYPING_HEATMAP
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_SIMPLE
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_WIDE
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_MULTIWIDE
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_CROSS
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_MULTICROSS
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_NEXUS
-#define DISABLE_RGB_MATRIX_SOLID_REACTIVE_MULTINEXUS
+/* The keyboard info.json enables these effects; this keymap does not use them. This file is included after the
+ * generated info_config.h, so #undef removes them from the build. */
+#undef ENABLE_RGB_MATRIX_MULTISPLASH
+#undef ENABLE_RGB_MATRIX_SPLASH
+#undef ENABLE_RGB_MATRIX_SOLID_MULTISPLASH
+#undef ENABLE_RGB_MATRIX_DIGITAL_RAIN
+#undef ENABLE_RGB_MATRIX_TYPING_HEATMAP
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_SIMPLE
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_WIDE
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_MULTIWIDE
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_CROSS
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_MULTICROSS
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_NEXUS
+#undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_MULTINEXUS
 
-#define DEBOUNCE_TYPE asym_eager_defer_pk
-#define RGB_MATRIX_LED_COUNT 61
 #define RGB_MATRIX_STARTUP_MODE RGB_MATRIX_SOLID_COLOR
 
 /* Bluetooth slot keys as in the stock firmware: tap connects, hold (500 ms) starts pairing. */
 #define AP2_BLE_SLOT_TAP_HOLD
 
-/* Send the battery level (ADC on PA7) to the Bluetooth MCU, so that the host can show it. C18 only. */
-#define AP2_BLE_BATTERY
+/* Send the battery level (ADC on PA7) to the Bluetooth MCU, so that the host can show it. The ADC is known for the
+ * C18 only, so the option stays off on the C15. */
+#ifdef AP2_HAS_BATTERY_ADC
+#    define AP2_BLE_BATTERY
+#endif
