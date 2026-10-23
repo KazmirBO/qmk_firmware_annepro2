@@ -34,6 +34,13 @@ const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 };
 
+uint16_t get_tapping_term(uint16_t keycode, keyrecord_t *record) {
+    if (keycode == LT(FN1, KC_CAPS)) {
+        return CAPS_FN1_TAPPING_TERM;
+    }
+    return TAPPING_TERM;
+}
+
 layer_state_t layer_state_set_user(layer_state_t state) {
     switch (get_highest_layer(state)) {
         case FN1: ap2_led_set_foreground_color(0x00, 0xff, 0x00); break;

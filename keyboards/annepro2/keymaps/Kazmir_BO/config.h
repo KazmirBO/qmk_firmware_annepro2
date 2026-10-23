@@ -7,6 +7,9 @@
 #define DEBOUNCE 10
 
 #define TAPPING_TERM 100
+/* Caps Lock (hold = FN1) uses a longer term, see get_tapping_term in keymap.c. */
+#define TAPPING_TERM_PER_KEY
+#define CAPS_FN1_TAPPING_TERM 250
 /* A tap followed by a hold of the same dual-role key always activates the hold action. */
 #define QUICK_TAP_TERM 0
 #define HOLD_ON_OTHER_KEY_PRESS
