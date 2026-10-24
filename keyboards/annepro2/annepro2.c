@@ -21,6 +21,8 @@
 #include "annepro2_battery.h"
 #include "ap2_led.h"
 #include "protocol.h"
+#include "suspend.h"
+#include "usb_main.h"
 
 #define RAM_MAGIC_LOCATION 0x20001ffc
 #define IAP_MAGIC_VALUE 0x0000fab2
@@ -38,8 +40,6 @@ static const SerialConfig led_uart_runtime_config = {
 };
 
 static const uint8_t led_mcu_wakeup[11] = {0x7b, 0x10, 0x43, 0x10, 0x03, 0x00, 0x00, 0x7d, 0x02, 0x01, 0x02};
-
-bool ble_capslock = false;
 
 /* Handshake state with the BLE MCU. The stock firmware pings the BLE MCU (02 01 02 and 01 03 02)
  * every 50 ms five times and then every 500 ms until the BLE MCU answers with its version. */
@@ -67,31 +67,36 @@ static void forward_reactive_keypress(const keyrecord_t *record) {
     }
 }
 
-/* A frame that stops arriving for this long is dropped, so that a lost byte does not swallow the next frame. */
+/* A frame that stops arriving for this long is dropped. */
 #ifndef AP2_BLE_RX_TIMEOUT_MS
 #    define AP2_BLE_RX_TIMEOUT_MS 100
 #endif
 
 static uint8_t  ble_rx[BLE_RX_HEADER_SIZE + BLE_RX_BODY_MAX];
 static uint8_t  ble_rx_pos;
+static uint8_t  ble_rx_skip; /* bytes of a long frame still to drop */
 static uint32_t ble_rx_timer;
 
 /* The header is validated by ble_rx_byte() before the body is read. */
 static void ble_handle_frame(const uint8_t *f, uint16_t len) {
+    /* The BLE MCU also forwards frames from a host to the other nodes; only its own frames to this MCU count. A
+     * fragmented frame counts only when it is complete in itself (one fragment, index 0). */
+    if (f[BLE_RX_ROUTE] != BLE_ROUTE_FROM_BLE) return;
+    if (f[BLE_RX_TYPE] == BLE_TYPE_FRAGMENT && f[BLE_RX_SEQ] != 0x10) return;
+    if (len < 3) return; /* no data byte */
     const uint8_t cmd = f[BLE_RX_CMD], sub = f[BLE_RX_SUB];
-    const uint8_t n   = len - 2; /* data bytes */
-    if (n < 1) return;
-    const uint8_t d0 = f[BLE_RX_DATA];
+    const uint8_t d0  = f[BLE_RX_DATA];
 
     switch (cmd) {
         case BLE_CMD_LED:
             switch (sub) {
                 case BLE_STS_ID_CONNECT:
                     ap2_led_cancel_blink();
+                    annepro2_ble_host_connected();
                     annepro2_battery_request_send();
                     break;
                 case BLE_STS_ID_CAPSLOCK:
-                    ble_capslock = (bool)d0;
+                    if (d0 <= 1) annepro2_ble_set_capslock(d0); /* the BLE MCU sends 0 or 1 */
                     break;
                 default:
                     break;
@@ -110,17 +115,19 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
 
 static uint16_t ble_rx_len(void) { return ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble_rx[BLE_RX_LEN_HI] << 8); }
 
-/* Whether the bytes received so far can start a frame: the stock firmware accepts only the two frame types, and the
- * header has to end with the sync byte and give a length that fits the buffer. */
-static bool ble_rx_prefix_valid(void) {
-    if (ble_rx[BLE_RX_SYNC] != BLE_SYNC_START) return false;
+/* Whether the bytes received so far (ble_rx[0] is always the sync byte) can be the start of a frame. The stock
+ * firmware accepts only the two frame types, and the header ends with the sync byte and gives a length of at most
+ * BLE_RX_SKIP_MAX. A sync byte in the body of a frame that is held here means that a byte of that frame was lost and
+ * the next frame has started: no frame handled here carries 0x7b. */
+static bool ble_rx_valid(void) {
     if (ble_rx_pos > BLE_RX_TYPE && ble_rx[BLE_RX_TYPE] != BLE_TYPE_SINGLE && ble_rx[BLE_RX_TYPE] != BLE_TYPE_FRAGMENT) return false;
     if (ble_rx_pos < BLE_RX_HEADER_SIZE) return true;
-    const uint16_t len = ble_rx[BLE_RX_END] == BLE_SYNC_END ? ble_rx_len() : 0;
-    return len >= 2 && len <= BLE_RX_BODY_MAX;
+    const uint16_t len = ble_rx_len();
+    if (ble_rx[BLE_RX_END] != BLE_SYNC_END || len < 2 || len > BLE_RX_SKIP_MAX) return false;
+    return ble_rx_pos == BLE_RX_HEADER_SIZE || ble_rx[ble_rx_pos - 1] != BLE_SYNC_START;
 }
 
-/* Drop the bytes before the next sync byte, so that a frame starting inside a rejected header is not lost. */
+/* Drop the bytes before the next sync byte, so that a frame starting inside a rejected one is not lost. */
 static void ble_rx_resync(void) {
     uint8_t i = 1;
     while (i < ble_rx_pos && ble_rx[i] != BLE_SYNC_START) i++;
@@ -130,22 +137,41 @@ static void ble_rx_resync(void) {
 
 /* Feed one byte from the BLE MCU into the frame parser. */
 static void ble_rx_byte(uint8_t byte) {
+    if (ble_rx_skip) {
+        ble_rx_skip--;
+        return;
+    }
     if (ble_rx_pos == 0 && byte != BLE_SYNC_START) return;
     ble_rx[ble_rx_pos++] = byte;
-    while (ble_rx_pos > 0 && !ble_rx_prefix_valid()) ble_rx_resync();
-    /* A rejected header leaves at most 7 bytes, so the frame can only complete with a byte appended here. */
-    if (ble_rx_pos < BLE_RX_HEADER_SIZE || ble_rx_pos < BLE_RX_HEADER_SIZE + ble_rx_len()) return;
-    ble_handle_frame(ble_rx, ble_rx_len());
+    while (ble_rx_pos > 0 && !ble_rx_valid()) ble_rx_resync();
+    /* A rejected frame leaves at most 7 bytes, so a header can only be complete when the byte appended here ends it. */
+    if (ble_rx_pos < BLE_RX_HEADER_SIZE) return;
+    const uint16_t len = ble_rx_len();
+    if (len > BLE_RX_BODY_MAX) {
+        /* Longer than any frame handled here: drop it by its length, so that its body is not scanned for frames. */
+        ble_rx_skip = len;
+        ble_rx_pos  = 0;
+        return;
+    }
+    if (ble_rx_pos < BLE_RX_HEADER_SIZE + len) return;
+    ble_handle_frame(ble_rx, len);
     ble_rx_pos = 0;
 }
 
 static void ble_poll(void) {
-    if (sdGetWouldBlock(&SD1)) {
-        /* The rest of a frame normally follows within a few milliseconds. */
-        if (ble_rx_pos > 0 && timer_elapsed32(ble_rx_timer) >= AP2_BLE_RX_TIMEOUT_MS) ble_rx_pos = 0;
+    msg_t c = sdGetTimeout(&SD1, TIME_IMMEDIATE);
+    if (c < MSG_OK) {
+        /* The rest of a frame normally follows within a few milliseconds. A frame left over from before a long stall
+         * does not swallow the next one: its sync byte rejects the old frame. */
+        if ((ble_rx_pos || ble_rx_skip) && timer_elapsed32(ble_rx_timer) >= AP2_BLE_RX_TIMEOUT_MS) {
+            ble_rx_pos  = 0;
+            ble_rx_skip = 0;
+        }
         return;
     }
-    while (!sdGetWouldBlock(&SD1)) ble_rx_byte(sdGet(&SD1));
+    do {
+        ble_rx_byte((uint8_t)c);
+    } while ((c = sdGetTimeout(&SD1, TIME_IMMEDIATE)) >= MSG_OK);
     ble_rx_timer = timer_read32();
 }
 
@@ -157,6 +183,71 @@ static void ble_handshake_task(void) {
     ble_ping_count++;
     annepro2_ble_startup();
     annepro2_ble_request_version();
+}
+
+#ifdef RGB_MATRIX_ENABLE
+/* With rgb_matrix the LED MCU is on exactly when rgb_matrix is enabled. Every change of that flag (the keys below,
+ * QK_RGB_MATRIX_*, the state restored from EEPROM, user code) is followed here, so the two cannot drift apart. */
+static bool led_mcu_on;
+
+static void led_sync(bool force) {
+    const bool on = rgb_matrix_is_enabled();
+    if (!force && on == led_mcu_on) return;
+    led_mcu_on = on;
+    if (on) {
+        ap2_led_enable();
+    } else {
+        ap2_led_disable();
+    }
+}
+#endif
+
+/* Turn the LEDs on or off: through rgb_matrix when it drives them, otherwise directly. */
+static void led_set(bool on) {
+#ifdef RGB_MATRIX_ENABLE
+    if (on) {
+        rgb_matrix_enable_noeeprom();
+    } else {
+        rgb_matrix_disable_noeeprom();
+    }
+    led_sync(true); /* a key press always resends, even if another path changed the LED MCU */
+#else
+    if (on) {
+        ap2_led_enable();
+    } else {
+        ap2_led_disable();
+    }
+#endif
+}
+
+/*
+ * The keyboard builds with NO_USB_STARTUP_CHECK (c15/c18 rules.mk). Otherwise QMK stops the whole keyboard task while
+ * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. This does what that loop
+ * did, but only while the reports go to USB: power down once (with RGB_MATRIX_SLEEP the LEDs go dark) and wake the
+ * host with a new key press. The USB wakeup event still runs suspend_wakeup_init().
+ */
+#ifndef USB_GETSTATUS_REMOTE_WAKEUP_ENABLED
+#    define USB_GETSTATUS_REMOTE_WAKEUP_ENABLED (2U)
+#endif
+
+static void usb_suspend_task(void) {
+    static bool powered_down, key_down;
+    const bool  usb_asleep = USB_DRIVER.state == USB_SUSPENDED;
+    if (!usb_asleep || annepro2_ble_is_active()) {
+        /* Switched to Bluetooth while the USB host sleeps: undo the power down here, no USB wakeup will do it. */
+        if (powered_down && usb_asleep) suspend_wakeup_init_quantum();
+        powered_down = false;
+        return;
+    }
+    bool down = false;
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) down |= matrix_get_row(row) != 0;
+    if (!powered_down) {
+        powered_down = true;
+        key_down     = down; /* keys still held from before the host slept do not wake it */
+        suspend_power_down_quantum();
+    }
+    if (down && !key_down && (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED)) usbWakeupHost(&USB_DRIVER);
+    key_down = down;
 }
 
 void bootloader_jump(void) {
@@ -218,13 +309,11 @@ void keyboard_post_init_kb(void) {
 
 #ifdef RGB_MATRIX_ENABLE
     ap2_led_set_manual_control(1);
-    /* Match the state rgb_matrix restored from EEPROM (QK_RGB_MATRIX_TOGGLE saves it), so that the toggle keys,
-     * which read rgb_matrix_is_enabled(), agree with the LED MCU after a restart. */
-    if (rgb_matrix_is_enabled()) {
-        ap2_led_enable();
-    } else {
-        ap2_led_disable();
-    }
+    /* A mode saved by a build with more effects can be past the last effect of this one, and rgb_matrix would then
+     * render nothing. UINT8_MAX is rgb_matrix's own factory test mode. */
+    const uint8_t mode = rgb_matrix_get_mode();
+    if (mode >= RGB_MATRIX_EFFECT_MAX && mode != UINT8_MAX) rgb_matrix_mode(RGB_MATRIX_DEFAULT_MODE);
+    led_sync(true);
 #endif
 
     keyboard_post_init_user();
@@ -278,12 +367,14 @@ void matrix_scan_kb(void) {
 #ifdef AP2_BLE_SLOT_TAP_HOLD
     slot_tick();
 #endif
+    usb_suspend_task();
+#ifdef RGB_MATRIX_ENABLE
+    led_sync(false);
+#endif
 
     /* While there's data from LED keyboard sent - read it. */
-    while (!sdGetWouldBlock(&SD0)) {
-        uint8_t byte = sdGet(&SD0);
-        proto_consume(&proto, byte);
-    }
+    msg_t c;
+    while ((c = sdGetTimeout(&SD0, TIME_IMMEDIATE)) >= MSG_OK) proto_consume(&proto, (uint8_t)c);
 
     matrix_scan_user();
 }
@@ -323,37 +414,23 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_OFF:
-                ap2_led_disable();
-#ifdef RGB_MATRIX_ENABLE
-                /* Keep rgb_matrix_is_enabled() (the source of truth for
-                 * KC_AP_RGB_TOG) in sync with the hardware LED state. */
-                rgb_matrix_disable_noeeprom();
-#endif
+                led_set(false);
                 return false;
 
             case KC_AP_LED_ON:
                 if (ap2_led_status.matrix_enabled) {
                     ap2_led_next_profile();
                 } else {
-                    ap2_led_enable();
-#ifdef RGB_MATRIX_ENABLE
-                    rgb_matrix_enable_noeeprom();
-#endif
+                    led_set(true);
                 }
                 ap2_led_reset_foreground_color();
                 return false;
 
             case KC_AP_LED_TOG:
                 if (ap2_led_status.matrix_enabled) {
-                    ap2_led_disable();
-#ifdef RGB_MATRIX_ENABLE
-                    rgb_matrix_disable_noeeprom();
-#endif
+                    led_set(false);
                 } else {
-                    ap2_led_enable();
-#ifdef RGB_MATRIX_ENABLE
-                    rgb_matrix_enable_noeeprom();
-#endif
+                    led_set(true);
                     ap2_led_reset_foreground_color();
                 }
                 return false;
@@ -378,11 +455,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 ap2_led_reset_foreground_color();
                 return false;
 #ifdef RGB_MATRIX_ENABLE
-            case QK_RGB_MATRIX_TOGGLE:
-                if(rgb_matrix_is_enabled()) ap2_led_disable();
-                else ap2_led_enable();
-                return process_record_user(keycode, record);
-
+            /* QK_RGB_MATRIX_TOGGLE and the other rgb_matrix keys need nothing here: led_sync() follows them. */
             case KC_AP_RGB_VAI:
                 if (get_mods() & MOD_MASK_SHIFT) {
                     rgb_matrix_increase_hue();
@@ -409,11 +482,9 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 } else if (get_mods() & MOD_MASK_CTRL) {
                     rgb_matrix_decrease_speed();
                 } else if (rgb_matrix_is_enabled()) {
-                    ap2_led_disable();
-                    rgb_matrix_disable_noeeprom();
+                    led_set(false);
                 } else {
-                    ap2_led_enable();
-                    rgb_matrix_enable_noeeprom();
+                    led_set(true);
                     ap2_led_reset_foreground_color();
                 }
                 return false;
