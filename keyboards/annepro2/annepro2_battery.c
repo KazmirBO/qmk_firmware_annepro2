@@ -3,6 +3,7 @@
 #ifdef AP2_BLE_BATTERY
 
 #    include "quantum.h"
+#    include "util.h"
 #    include "hal.h"
 #    include "ap2_led.h"
 #    include "annepro2_ble.h"
@@ -40,11 +41,14 @@
 static uint8_t  fail_count;
 static uint32_t fail_timer;
 
-static bool     send_now = true;
-static uint32_t send_timer;
+_Static_assert(AP2_BATTERY_HISTORY >= 1 && AP2_BATTERY_HISTORY <= 255, "AP2_BATTERY_HISTORY must be 1-255");
 
+static bool     send_now;
+static uint32_t sample_timer;
+
+/* Calibrated readings; the slots not used yet are 0, so they never win the maximum. */
 static uint16_t history[AP2_BATTERY_HISTORY];
-static uint8_t  history_len, history_pos;
+static uint8_t  history_count, history_pos;
 
 static bool     shown;
 static uint32_t shown_timer;
@@ -100,18 +104,40 @@ bool annepro2_battery_read(uint16_t *raw) {
     return false;
 }
 
-/* Voltage as the BLE MCU computes it from the raw reading: U = raw * 2 * 3.1 / 4095, in millivolts. */
+/* Voltage as the BLE MCU computes it from the raw reading: U = raw * 2 * 3.1 / 4095, in millivolts. A step of the curve
+ * starts at a whole millivolt value, so this gives the same step as the BLE MCU's floating point. */
 #    define AP2_BATTERY_MV(raw) ((uint32_t)(raw) * 6200u / 4095u)
-/* Rounded up, so that AP2_BATTERY_MV(AP2_BATTERY_RAW(mv)) gives mv back and a voltage on a step stays on it. */
-#    define AP2_BATTERY_RAW(mv) (((uint32_t)(mv) * 4095u + 6199u) / 6200u)
 
 /* The BLE MCU reports its first step (10 %) from 3.4 V and 0 % below it; the correction is applied up to this voltage. */
 #    define AP2_BATTERY_BLE_FIRST_STEP_MV 3400u
 #    define AP2_BATTERY_CORRECTION_END_MV 3600u
 
+/* The curve of the BLE MCU (docs/04-uklad-ble-8051.md); the stock main MCU uses 4.1 V for 100 % instead of 4.15 V. */
+static uint8_t percent_from_mv(uint32_t mv) {
+    static const struct {
+        uint16_t mv;
+        uint8_t  percent;
+    } curve[] = {{4150, 100}, {4000, 90}, {3900, 80}, {3800, 70}, {3750, 60}, {3700, 50}, {3650, 40}, {3600, 30}, {3500, 20}, {3400, 10}};
+    for (uint8_t i = 0; i < sizeof(curve) / sizeof(curve[0]); i++) {
+        if (mv >= curve[i].mv) return curve[i].percent;
+    }
+    return 0;
+}
+
+#    if AP2_BATTERY_EMPTY_MV < AP2_BATTERY_BLE_FIRST_STEP_MV
+/* The raw reading for a voltage. One count is about 1.5 mV, so not every voltage has an exact reading: take the rounded
+ * down one, and the next one when that gives exactly mv or when mv is on a step the rounded down one misses. The BLE MCU
+ * then puts the reading on the same step as mv (the next count is at most 1 mV above mv, and steps are 50 mV apart). */
+static uint16_t raw_from_mv(uint32_t mv) {
+    uint32_t raw = mv * 4095u / 6200u;
+    if (AP2_BATTERY_MV(raw + 1) == mv || percent_from_mv(AP2_BATTERY_MV(raw)) < percent_from_mv(mv)) raw++;
+    return raw;
+}
+#    endif
+
 uint16_t annepro2_battery_scaled(uint16_t raw) {
-    uint32_t scaled = (uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN;
-    if (scaled > AP2_ADC_RESULT_MASK) scaled = AP2_ADC_RESULT_MASK; /* the BLE MCU expects a 12-bit reading */
+    /* the BLE MCU expects a 12-bit reading */
+    const uint32_t scaled = MIN((uint32_t)raw * AP2_BATTERY_SCALE_NUM / AP2_BATTERY_SCALE_DEN, AP2_ADC_RESULT_MASK);
 #    if AP2_BATTERY_EMPTY_MV < AP2_BATTERY_BLE_FIRST_STEP_MV
     uint32_t mv = AP2_BATTERY_MV(scaled);
     if (mv < AP2_BATTERY_CORRECTION_END_MV) {
@@ -122,23 +148,26 @@ uint16_t annepro2_battery_scaled(uint16_t raw) {
             /* below EMPTY_MV: just under the first step, so 0 % */
             mv = mv * (AP2_BATTERY_BLE_FIRST_STEP_MV - 1) / AP2_BATTERY_EMPTY_MV;
         }
-        return (uint16_t)AP2_BATTERY_RAW(mv);
+        return raw_from_mv(mv);
     }
 #    endif
     return (uint16_t)scaled; /* above the correction the reading is not converted, so it does not lose precision */
 }
 
-uint8_t annepro2_battery_percent(uint16_t raw) {
-    /* The same voltage as the BLE MCU sees, so that the host and the indicator agree. */
-    const uint32_t mv = AP2_BATTERY_MV(raw);
-    static const struct {
-        uint16_t mv;
-        uint8_t  percent;
-    } curve[] = {{4100, 100}, {4000, 90}, {3900, 80}, {3800, 70}, {3750, 60}, {3700, 50}, {3650, 40}, {3600, 30}, {3500, 20}, {3400, 10}};
-    for (uint8_t i = 0; i < sizeof(curve) / sizeof(curve[0]); i++) {
-        if (mv >= curve[i].mv) return curve[i].percent;
-    }
-    return 0;
+uint8_t annepro2_battery_percent(uint16_t raw) { return percent_from_mv(AP2_BATTERY_MV(raw)); }
+
+/* Store a calibrated reading. */
+static void history_add(uint16_t value) {
+    history[history_pos] = value;
+    history_pos          = (history_pos + 1) % AP2_BATTERY_HISTORY;
+    if (history_count < AP2_BATTERY_HISTORY) history_count++;
+}
+
+/* The level sent to the BLE MCU: the highest stored reading. */
+static uint16_t history_max(void) {
+    uint16_t max = 0;
+    for (uint8_t i = 0; i < AP2_BATTERY_HISTORY; i++) max = MAX(max, history[i]);
+    return max;
 }
 
 /* The indicator uses sticky keys, so it also works with the LEDs off. */
@@ -148,9 +177,14 @@ static void hide_display(void) {
 }
 
 static void show_display(void) {
-    uint16_t raw;
-    if (!annepro2_battery_read(&raw)) return;
-    const uint8_t percent = annepro2_battery_percent(annepro2_battery_scaled(raw));
+    /* The same filtered level as sent to the host; a fresh reading only while there is none yet. */
+    uint16_t level = history_max();
+    if (history_count == 0) {
+        uint16_t raw;
+        if (!annepro2_battery_read(&raw)) return;
+        level = annepro2_battery_scaled(raw);
+    }
+    const uint8_t percent = annepro2_battery_percent(level);
     const uint8_t lit     = (percent + 5) / 10; /* keys 1..0, one key per 10 % */
     ap2_led_t     color   = {.p.blue = 0x00, .p.green = 0xff, .p.red = 0x00, .p.alpha = 0xff};
     if (percent < 20) {
@@ -175,27 +209,24 @@ void annepro2_battery_toggle_display(void) {
 
 void annepro2_battery_request_send(void) { send_now = true; }
 
-/* Store a calibrated reading and return the highest of the last AP2_BATTERY_HISTORY ones. */
-static uint16_t history_add(uint16_t value) {
-    history[history_pos] = value;
-    history_pos          = (history_pos + 1) % AP2_BATTERY_HISTORY;
-    if (history_len < AP2_BATTERY_HISTORY) history_len++;
-    uint16_t max = 0;
-    for (uint8_t i = 0; i < history_len; i++) {
-        if (history[i] > max) max = history[i];
-    }
-    return max;
-}
-
 void annepro2_battery_task(void) {
     if (shown && timer_elapsed32(shown_timer) >= AP2_BATTERY_SHOW_MS) hide_display();
 
     if (!annepro2_ble_is_ready()) return;
-    if (!send_now && timer_elapsed32(send_timer) < AP2_BATTERY_INTERVAL_MS) return;
-    send_now   = false;
-    send_timer = timer_read32();
-    uint16_t raw;
-    if (annepro2_battery_read(&raw)) annepro2_ble_send_battery(history_add(annepro2_battery_scaled(raw)));
+    const uint32_t interval = history_count < AP2_BATTERY_HISTORY ? AP2_BATTERY_FILL_MS : AP2_BATTERY_INTERVAL_MS;
+    if (timer_elapsed32(sample_timer) >= interval) {
+        sample_timer = timer_read32();
+        uint16_t raw;
+        if (annepro2_battery_read(&raw)) {
+            history_add(annepro2_battery_scaled(raw));
+            send_now = true;
+        }
+    }
+    /* Nothing goes out before the history is full: the BLE MCU would keep a low first level. */
+    if (send_now && history_count == AP2_BATTERY_HISTORY) {
+        send_now = false;
+        annepro2_ble_send_battery(history_max());
+    }
 }
 
 #else

@@ -41,6 +41,12 @@ uint16_t get_tapping_term(uint16_t keycode, keyrecord_t *record) {
     return TAPPING_TERM;
 }
 
+void keyboard_post_init_user(void) {
+    /* NKRO_ENABLE builds NKRO in, but this keymap has no key that turns it on (no magic or command keys) and EEPROM
+     * keeps the old value, so turn it on for USB here. The Bluetooth driver turns it off and back on when it switches. */
+    keymap_config.nkro = true;
+}
+
 layer_state_t layer_state_set_user(layer_state_t state) {
     switch (get_highest_layer(state)) {
         case FN1: ap2_led_set_foreground_color(0x00, 0xff, 0x00); break;

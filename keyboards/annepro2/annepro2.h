@@ -28,11 +28,13 @@
  *   [3] seq   [4..5] length LE = 2 + data bytes        [6] 0  [7] 0x7d
  *   [8] cmd   [9] sub   [10..] data
  *
- * The frame is parsed by length, so frames carrying other payload sizes than
- * the three known ones do not desynchronise the stream.
+ * The frame is parsed by length: a longer frame (for example one the BLE MCU
+ * forwards from a host) is skipped by its length, and only frames routed from
+ * the BLE MCU to the main MCU are handled.
  */
 #define BLE_RX_HEADER_SIZE 8
-#define BLE_RX_BODY_MAX    8 /* cmd + sub + up to 6 data bytes */
+#define BLE_RX_BODY_MAX    8  /* cmd + sub + up to 6 data bytes */
+#define BLE_RX_SKIP_MAX    64 /* longest frame that is skipped by its length */
 
 /* Offsets in a received frame. */
 enum {
@@ -54,15 +56,19 @@ enum {
     BLE_TYPE_FRAGMENT = 0x10,
 };
 
-extern bool ble_capslock;
-
 #define BLE_SYNC_START 0x7b
 #define BLE_SYNC_END   0x7d
 
+/* Routing byte: (target << 4) | source, main MCU = 3, BLE MCU = 5. */
+#define BLE_ROUTE_TO_BLE   0x53
+#define BLE_ROUTE_FROM_BLE 0x35
+
 /* Command groups (byte 8). */
 enum {
-    BLE_CMD_GLOBAL = 0x01,
-    BLE_CMD_LED    = 0x20, /* the BLE MCU reports host state with this group */
+    BLE_CMD_GLOBAL   = 0x01,
+    BLE_CMD_KEYBOARD = 0x10,
+    BLE_CMD_LED      = 0x20, /* the BLE MCU reports host state with this group */
+    BLE_CMD_BLE      = 0x40,
 };
 
 /* Sub-commands (byte 9) seen in frames from the BLE MCU. */
