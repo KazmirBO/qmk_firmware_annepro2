@@ -12,16 +12,21 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Interval between two readings sent to the BLE MCU. */
+/* Interval between two readings sent to the BLE MCU, once the history below is full. */
 #ifndef AP2_BATTERY_INTERVAL_MS
 #    define AP2_BATTERY_INTERVAL_MS 60000
 #endif
 
 /* The BLE MCU keeps the lowest level it was sent until it restarts, so a single low reading (for example while the LEDs
- * draw a lot of current) would stay on the host. The highest of the last AP2_BATTERY_HISTORY readings is sent instead,
- * so a lasting drop reaches the host after that many readings (5 minutes with the default interval). */
+ * draw a lot of current) would stay on the host. The highest of the last AP2_BATTERY_HISTORY readings (1-255) is sent
+ * instead, so a lasting drop reaches the host after that many readings (5 minutes with the default interval). After
+ * start the readings are taken every AP2_BATTERY_FILL_MS and nothing is sent until the history is full, so the first
+ * level is filtered too. A connection sends the current level again without taking a reading. */
 #ifndef AP2_BATTERY_HISTORY
 #    define AP2_BATTERY_HISTORY 5
+#endif
+#ifndef AP2_BATTERY_FILL_MS
+#    define AP2_BATTERY_FILL_MS 2000
 #endif
 
 /* How long KC_AP2_BATT keeps the level on the number row. */
@@ -54,10 +59,10 @@
 void     annepro2_battery_init(void);
 bool     annepro2_battery_read(uint16_t *raw);   /* trimmed mean of 8 samples, false on timeout */
 uint16_t annepro2_battery_scaled(uint16_t raw);  /* calibrated 12-bit reading: the scale and the low end correction */
-uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100 for a calibrated reading, the curve of the stock firmware */
+uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100 for a calibrated reading, the curve of the BLE MCU */
 
 void annepro2_battery_task(void);           /* periodic send to the BLE MCU and hiding of the indicator */
-void annepro2_battery_request_send(void);   /* send the next reading right away, e.g. after a connection */
+void annepro2_battery_request_send(void);   /* send the current level again, e.g. after a connection */
 void annepro2_battery_toggle_display(void); /* KC_AP2_BATT */
 
 #else /* the option is off: the callers compile to nothing */
