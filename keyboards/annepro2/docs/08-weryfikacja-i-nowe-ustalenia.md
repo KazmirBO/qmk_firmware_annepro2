@@ -27,7 +27,7 @@ Znaczniki: **[O]** obserwacja, **[I]** inferencja, **[N]** niewiadoma. Adresy MC
 | Wskaźnik slotu sterują tylko klawisze, nie stan BLE (02) | **poprawione** | Połączenie (`20 0c` z BLE) gasi wskaźnik [O]. |
 | Handshake: 5 prób co 50, potem co 500 (03) | potwierdzone, jednostka ustalona | Tick systemowy 10 ms, więc 0,5 s, potem 5 s [I mocne, sekcja 3.1]. |
 | Przytrzymanie slotu ~500 ms (03) | **poprawione** | Licznik 500 zmniejszany o 10 co 10 ticków daje 5 s. Instrukcja Anne Pro 2: „FN2 + 1 (5 Seconds)” [O zewn.]. |
-| PC10 to nieustalone wejście, PC10 nie istnieje w układzie 48-pinowym (03, 05) | **poprawione** | PC10 to jedyne źródło wyboru wyjścia; instrukcja opisuje przełącznik Bluetooth z tyłu klawiatury. Wniosek: PC10 = ten przełącznik [I mocne]. Wątpliwość co do obudowy układu zostaje [N]. |
+| PC10 to nieustalone wejście, PC10 nie istnieje w układzie 48-pinowym (03, 05) | **poprawione** | PC10 to jedyne źródło wyboru wyjścia; instrukcja opisuje przełącznik Bluetooth z tyłu klawiatury. Wniosek: PC10 = ten przełącznik [I mocne], potwierdzony testem na C18 (Off: USB, On: Bluetooth) [O]. Wątpliwość co do obudowy układu zostaje [N]. |
 | PC0 to detekcja USB, niska pewność (03) | potwierdzone co do kodu | PC0: wejście bez podciągania, EXTI0, debounce 30 ticków, 1 = USB [O]. Konflikt z etykietą schematu zostaje [N]. |
 | Sen: przyciemnianie 10 jednostek przed limitem w `0x836c` (03) | **poprawione** | `0x836c` uzbraja RTC limitem snu w sekundach; opis w sekcji 3.6. |
 | PB6 to linia CS pamięci SPI (03) | **obalone dla C18** | CS pamięci SPI to PA3 (zgodne z QMK `c18/config.h`). PB6 to wyjście ustawiane na 1 przy starcie, rola [N]. |
@@ -215,13 +215,13 @@ Podpolecenia, których MCU 2.36 nie ma, choć ObinsKit je zna: `01 04` (`readMcu
 - **Przytrzymanie slotu:** fabrycznie trwa 5 s. `AP2_BLE_SLOT_TAP_HOLD` ma domyślnie 500 ms, co jest świadomym odejściem od oryginału; `AP2_BLE_SLOT_HOLD_MS` 5000 daje czas fabryczny. Opisy w `readme.md` i w keymapie `Kazmir_BO` zostały poprawione (wcześniej podawały 500 ms jako zachowanie oryginału).
 - **Wskaźnik slotu:** fabryczny MCU gasi go po `20 0c` z BLE; port robi to samo (`ap2_led_cancel_blink()` w obsłudze `BLE_STS_ID_CONNECT`).
 - **Handshake:** port pinguje co 50 ms, a potem co 500 ms, czyli dziesięć razy częściej niż oryginał. To tylko przyspiesza odebranie wersji; komentarz w `annepro2.c` opisuje teraz czasy oryginału poprawnie.
-- **Przełącznik Bluetooth:** nowa opcja `AP2_BT_SWITCH` (domyślnie wyłączona) odtwarza zachowanie oryginału. Odczytuje PC10 z podciąganiem w dół: stan wysoki to USB, niski to Bluetooth. Wyjście wybiera tylko zmiana stanu przełącznika, stabilna przez 50 ms. Nie sprawdzono tego na sprzęcie, a na płytce bez przełącznika pin czyta stan niski i klawiatura pisałaby przez Bluetooth, dlatego opcja nie jest włączona w żadnej keymapie.
+- **Przełącznik Bluetooth:** nowa opcja `AP2_BT_SWITCH` (domyślnie wyłączona) odtwarza zachowanie oryginału. Odczytuje PC10 z podciąganiem w dół: stan wysoki to USB, niski to Bluetooth. Wyjście wybiera tylko zmiana stanu przełącznika, stabilna przez 50 ms. Sprawdzone na jednej klawiaturze C18: przełącznik w pozycji Off daje USB, On Bluetooth. Opcja jest włączona w keymapie `Kazmir_BO`; domyślnie pozostaje wyłączona, bo na płytce bez przełącznika pin czyta stan niski i klawiatura pisałaby przez Bluetooth.
 - **Bateria:** BLE sprawdza poziom co 15 s w stanie połączenia, a poziom w GATT tylko maleje. Częstsza niż co 15 s wysyłka `01 05` z QMK niczego nie przyspieszy u hosta.
 
 ## 8. Niewiadome po tej rundzie
 
 1. **Czujnik:** czy LIS3DH jest obsadzony na płytkach C18 (schemat opisuje PB7/PB8 jako `LED_RESET`/`LED_WKUP`).
-2. **Piny:** role PA6, PC3, PB6, PC1 (AF6) oraz obudowa układu MCU (PC10).
+2. **Piny:** role PA6, PC3, PB6, PC1 (AF6) oraz obudowa układu MCU (PC10 działa na C18, więc układ ma ten pin).
 3. **Ping LED:** zmiana typu ramki pingu LED (0x12/0x10) przy każdym wysłaniu.
 4. **Rekord urządzenia:** znaczenie pól rekordu pod 0x3E00 poza PID 0xA293.
 5. **BLE:** funkcja `evtCB`, HCI 0xFC20, bootloader i mapowanie adresu 0x4000 na flash CC254x.

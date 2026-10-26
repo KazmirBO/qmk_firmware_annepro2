@@ -38,12 +38,12 @@ Dwie zmienne decydują o torze raportów HID [O]:
 | Zmienna | Adres | Źródło | Znaczenie |
 |---|---|---|---|
 | tryb magistrali | `0x20001182` | odczyt wejścia PC0 (`0x7ab4`, `0x7b3c`) | 0 brak USB, 2 podłączone USB [O]; PC0 jest wejściem bez podciągania z EXTI0 i debounce 30 ticków, a stan 1 uruchamia ponowne podłączenie USB, więc kod traktuje PC0 jako detekcję zasilania USB [O]; schemat C18 (`qmk_firmware/keyboards/annepro2/AnnePro2Schematics.PDF`) opisuje PC0 jako linię COL5 macierzy, a QMK nie używa PC0 w macierzy C18, więc konflikt ze schematem zostaje [N] |
-| wybór wyjścia | `0x200011ad` | przerwanie na PC10 (`0x7bb4`) | 0 wyjście USB, 1 wyjście Bluetooth [O]; PC10 to przełącznik Bluetooth z tyłu klawiatury opisany w instrukcji [I mocne] |
+| wybór wyjścia | `0x200011ad` | przerwanie na PC10 (`0x7bb4`) | 0 wyjście USB, 1 wyjście Bluetooth [O]; PC10 to przełącznik Bluetooth z tyłu klawiatury opisany w instrukcji; sprawdzone na C18 z opcją `AP2_BT_SWITCH` w QMK: Off daje USB, On Bluetooth [O] |
 
 - Raport klawiatury (`0xe1b2`): gdy `wybór == 0` i `tryb == 2`, MCU wysyła do komputera 37 bajtów na endpoint 2 (USB, NKRO); w każdym innym przypadku buduje ramkę `10 04` z 8 bajtami i wysyła ją na USART1 do BLE [O].
 - Raport multimediów (`0xe2a4`): USB endpoint 5 (5 bajtów) albo `10 08` z 4 bajtami do BLE [O].
 - Po przełączeniu wyboru na USB (PC10 w stanie 1) MCU wysyła pusty raport (37 zer), żeby zwolnić klawisze [O].
-- Źródło zmiennej `0x200011ad` to odczyt wejścia PC10 (`0x7bb4`) i jest to jedyne miejsce, które ją ustawia [O]. Instrukcja Anne Pro 2 każe przestawić przełącznik Bluetooth z tyłu klawiatury na „On” przy pracy bezprzewodowej i na „Off” przy USB, więc PC10 to ten przełącznik [I mocne, runda Ghidry]. Zastrzeżenie dotyczące obudowy układu ze schematu C18 zostaje [N]. Nie proponuję opierać na tym wejściu zmian kodu QMK bez sprawdzenia na płytce.
+- Źródło zmiennej `0x200011ad` to odczyt wejścia PC10 (`0x7bb4`) i jest to jedyne miejsce, które ją ustawia [O]. Instrukcja Anne Pro 2 każe przestawić przełącznik Bluetooth z tyłu klawiatury na „On” przy pracy bezprzewodowej i na „Off” przy USB, więc PC10 to ten przełącznik [I mocne, runda Ghidry]; potwierdził to test na C18 z opcją `AP2_BT_SWITCH` w QMK (Off: USB, On: Bluetooth) [O]. Zastrzeżenie dotyczące obudowy układu ze schematu C18 zostaje [N]. Opcja `AP2_BT_SWITCH` w porcie QMK korzysta z tego wejścia.
 - Raporty przez BLE mają stały rozmiar 8 bajtów, więc nie przenoszą pełnego NKRO (w USB 37 bajtów) [O].
 
 ## 4. Gniazda parowania

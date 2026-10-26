@@ -44,6 +44,10 @@
  * this keymap keeps the default AP2_BLE_SLOT_HOLD_MS of 500 ms. */
 #define AP2_BLE_SLOT_TAP_HOLD
 
+/* Follow the Bluetooth switch on the bottom of the keyboard (PC10): on selects the Bluetooth output, off the USB
+ * output. Only a change of the switch selects the output, so KC_AP2_USB and the slot keys still work in between. */
+#define AP2_BT_SWITCH
+
 /* Send the battery level (ADC on PA7) to the Bluetooth MCU, so that the host can show it. The ADC is known for the
  * C18 only, so the option stays off on the C15. */
 #ifdef AP2_HAS_BATTERY_ADC
