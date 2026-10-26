@@ -35,16 +35,17 @@ Znaczniki: **[O]** obserwacja, **[I]** inferencja, **[N]** niewiadoma. Wszystko 
 | `writeBacklightAuto` | MCU | `01 0c` | |
 | `readUDID` / `writeUDID` | MCU | `01 0d` / `01 0e` | identyfikator urządzenia (16 B w MCU, ten sam, który MCU odsyła do BLE jako `01 10`) |
 | `readBatteryPercentage` | MCU | `01 11` | |
-| `uploadKbdLayout`, `writeKbdMagicFn`, `writeKbdTap`, `writeKbdLayout`, `writeKbdCapslock`, `writeKbdTapkey*` | MCU | `10 02`, `10 03`, `10 05`, `10 06`, `10 07`, `10 11`-`10 13` | konfiguracja klawiatury |
+| `uploadKbdLayout`, `writeKbdMagicFn`, `writeKbdTap`, `writeKbdLayout`, `writeKbdCapslock`, `writeKbdTapkey*` | MCU | `10 02`, `10 03`, `10 05`, `10 06`, `10 07`, `10 11`-`10 13` | konfiguracja klawiatury; `uploadKbdLayout` (`10 02`) to odczyt mapy z klawiatury, zapis mapy idzie przez `10 01` (sekcja 3.2 w `08-weryfikacja-i-nowe-ustalenia.md`) |
 | `writeLightList`, `writeLightHoldOn`, wskaźniki, kolor Caps Lock, tryb zasilania LED, jasność | MCU | `20 04`, `20 0d`, `20 14`, `20 15`, `20 18`-`20 1f` | konfiguracja podświetlenia (`20 15` to jasność podświetlenia) |
 | `writeAudioVisualConfig`, `writeAudioVisualData` | LED | `21 01`, `21 02` | wizualizacja dźwięku |
 | makra (`writeMacroFn`, `resetMacro`, `readMacro*`, `clearMacro`) | MCU | `30 03` do `30 0a` | |
 | **`deleteBleHost`** | **BLE** | **`40 05`** | usunięcie parowań; potwierdza, że `40 05` kasuje wszystkie bondy |
 | **`readBleMac`** | **BLE** | **`40 30`** | adres BD układu BLE (6 B) |
-| mysz wirtualna (`writeVirtualMouse*`, `readVirtualMouseConfig`) | MCU | `60 01`-`60 03`, `60 05` | grupa `0x60` to mysz wirtualna; ramka `60 04` z MCU trafia do BLE, który zamienia ją na raport HID ID 4 (input, 8 B) |
+| mysz wirtualna (`writeVirtualMouse*`, `readVirtualMouseConfig`) | MCU | `60 01`-`60 03`, `60 05` | grupa `0x60` to mysz wirtualna; **MCU 2.36 nie ma procedury dla `cmd 0x60`** (wpis zerowy), więc te ustawienia nie działają na C18 [O, runda Ghidry]. Ramka `60 04` z MCU trafia do BLE, który zamienia ją na raport HID ID 4 (input, 8 B) |
 | OLED (`writeOled*`) | MCU | `70 xx` | modele z wyświetlaczem |
 
-- Nie znalazłem w ObinsKit polecenia, które wymusza wysłanie `01 05` do BLE. `readBattery` i `readBatteryPercentage` pytają MCU (`01 05`, `01 11`).
+- Nie znalazłem w ObinsKit polecenia, które wymusza wysłanie `01 05` do BLE. `readBattery` i `readBatteryPercentage` pytają MCU (`01 05`, `01 11`); MCU 2.36 obsługuje tylko `01 05`.
+- Weryfikacja tej tabeli z kodem MCU 2.36, nazwy kodów klawiszy (m.in. 207 = „Game wheel”) i nazwy efektów podświetlenia: `08-weryfikacja-i-nowe-ustalenia.md`, sekcje 3.2, 3.4, 4 i 6. Nie wszystkie polecenia ObinsKit istnieją w tej wersji MCU (`01 04`, `01 0c`, `01 11`, `20 14`, `20 1c`, `20 1d`, `30 04`, grupa `0x60`).
 
 ## 3. Niedokończone
 

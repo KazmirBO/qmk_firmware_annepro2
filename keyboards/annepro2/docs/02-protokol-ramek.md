@@ -52,7 +52,7 @@ Bajt adresów w praktyce: `0x53` to MCU do BLE, `0x43` to MCU do LED, `0x35` to 
 
 - Przypisanie USART1 do BLE i USART0 do LED wynika z kolejek: wysyłka do celu 5 kończy się zapisem do struktury PDMA `0x200011b4` i USART1, a do celu 4 do struktury `0x20000e4c` i USART0 [O]. Zgadza się to z portem społeczności QMK (`SD1` to BLE, `SD0` to LED) [I, źródło zewnętrzne].
 - Odbiór: przerwanie czyta po 5 bajtów (flaga 0x20) albo tyle, ile jest w FIFO po przekroczeniu czasu (flaga 0x40), i wrzuca do wspólnej kolejki `0x20000468`. Obie linie (LED i BLE) zasilają tę samą kolejkę, którą czyta zadanie "AT process" [O].
-- Które fizyczne piny niosą TX i RX tych USART-ów, nie ustaliłem [N].
+- Piny: USART0 to PB0/PB1 (LED), USART1 to PA4/PA5 (BLE), zgodnie z konfiguracją AFIO (`03-zachowanie-mcu-bluetooth.md`, sekcja 7) [O].
 
 ## 4. Dyspozytor poleceń MCU
 
@@ -62,19 +62,21 @@ Tablica leży w skompresowanych danych RW (`0x20000000`, rozpakowanie opisane w 
 
 | `cmd` | Funkcja | Rola (wniosek z kodu) |
 |---|---|---|
-| 0x01 | 0x5d88 | informacje o urządzeniu: wersje, identyfikator 16 B, reset ustawień [O/I] |
+| 0x01 | 0x5d88 | informacje o urządzeniu: wersje, identyfikator 16 B, czas pracy, bateria, limit snu [O] |
 | 0x02 | 0x6256 | sterowanie: stan układów BLE i LED, restart do bootloadera [O] |
-| 0x03 | 0x631e | odczyt pamięci (parametry z ramki) [I] |
-| 0x10 | 0x5b56 | konfiguracja i mapa klawiszy w pamięci zewnętrznej [I] |
+| 0x03 | 0x631e | odczyt zewnętrznej pamięci **SPI** (nie pamięci MCU) [O] |
+| 0x10 | 0x5b56 | konfiguracja i mapa klawiszy w pamięci zewnętrznej [O] |
 | 0x11 | brak | wpis pusty [O] |
 | 0x12 | 0x62fc | włączenie strumieniowania zdarzeń klawiszy do komputera (flaga `0x20001351`) [O/I] |
-| 0x20 | 0x6410 | konfiguracja podświetlenia (komunikacja z ObinsKit i LED) [I] |
+| 0x20 | 0x6410 | konfiguracja podświetlenia (komunikacja z ObinsKit i LED) [O] |
 | 0x21 | brak | wpis pusty [O] |
-| 0x30 | 0x6034 | nie analizowano [N] |
+| 0x30 | 0x6034 | makra (zapis i odczyt w pamięci SPI od 0x10000) [O] |
 | 0x40 | 0x6358 | sama instrukcja `bx lr`, czyli puste polecenie [O] |
-| 0x50 | 0x5acc | podpolecenia 1, 2, 3, 5, 6: czynności na czujniku I2C i zasilaniu [I] |
-| 0x60 | brak | wpis pusty [O] |
-| 0x80 | 0x67e2 | nie analizowano [N] |
+| 0x50 | 0x5acc | akcelerometr LIS3DH (inicjalizacja, stop trybu kierownicy, odczyt `WHO_AM_I`) [O] |
+| 0x60 | brak | wpis pusty, więc ustawienia myszy wirtualnej z ObinsKit nie działają w tej wersji [O] |
+| 0x80 | 0x67e2 | `80 01` pomiar baterii jak `01 05`, `80 02` pusta funkcja [O] |
+
+Pełne podpolecenia: `08-weryfikacja-i-nowe-ustalenia.md`, sekcja 3.2.
 
 ## 5. Polecenia MCU do BLE (węzeł 5)
 
@@ -88,7 +90,7 @@ Tablica leży w skompresowanych danych RW (`0x20000000`, rozpakowanie opisane w 
 | `10 08` | `0x12` | 4 B | `0xe2a4` (tryb BLE) | raport multimediów (consumer) [O] |
 | `60 04` | `0x12` | 8 B | `0xe240` (tryb BLE) | mysz wirtualna; BLE zamienia to na raport HID ID 4 (input, 8 B), a nie ignoruje [O/I] |
 | `11 01` | `0x12` | brak | `0x6dde`, z menedżera zasilania przy zdarzeniu wybudzenia | podtrzymanie aktywności: BLE uzbraja wybudzenie P0.1 i na 500 ms wstrzymuje sen [O/I] |
-| `50 07` | `0x12` | 5 B | `0x8c44` (zadanie czujnika I2C), tylko gdy nie ma trybu USB | nieznane; w obrazie BLE `cmd 0x50` ma pusty handler, więc ten firmware go ignoruje [O/N] |
+| `50 07` | `0x12` | 5 B | `0x8c44` (proces czujnika), gdy tryb kierownicy (`KC_FN_WHEEL`) działa, a wyjście nie jest USB | odpowiednik raportu gamepada dla BLE; w obrazie BLE `cmd 0x50` ma pusty handler, więc ten firmware go ignoruje [O] |
 | `01 10` | zależnie od żądania | 16 B | `0x5d88`, odpowiedź na wersję zgłoszoną przez BLE | UDID z `0x2000114c`; BLE przyjmuje `01 10 <id> <32 B>` i dla id 2 zapisuje DIS Serial Number; fabryczny MCU wysyła 32 znaki bez bajtu id, więc BLE je odrzuca [O/I] |
 
 Polecenia od komputera do BLE (węzeł 1 do 5) MCU przekazuje bez zmian (`0x8912`). W taki sposób przechodzi np. ramka "bootload" znana z QMK: `7b 10 51 10 03 00 00 7d 02 01 01` [I].
@@ -102,12 +104,12 @@ Strona nadawcza w obrazie BLE: funkcja `1:F45A` buduje i wysyła ramkę (R1 to `
 | `02 01` | stan (1 B) | `0x6256`: zapis do `0x200011a1` przez `0x7456` | stan układu BLE; wartość 2 oznacza gotowość [O] |
 | `01 03` | 1 B = `0x25` (wysoka połówka to wersja główna, niska to poboczna) | `0x5e70`: wersja do `0x2000118b` (`0x727e`); jeśli składana wersja wynosi co najmniej 0x100, ustawia stan BLE na 2 i odsyła `01 10` | wersja układu BLE, ObinsKit pokazuje "2.05". BLE wysyła ją raz po inicjalizacji (`1:EF82`) oraz jako odpowiedź na zapytanie [O] |
 | `20 07` | 1 B: bit 0 lub 1 | `0x6612`: wymaga nadawcy 5; zapisuje wartość w `0x2000119e` (`0x736a`) i przesyła `20 07` do LED | stan diody Caps Lock hosta; BLE wyciąga go z raportu wyjściowego HID (bit 1 w ID 1) [O/I] |
-| `20 0c` | 1 B = 0 | `0x66e2`: zapis do `0x20001167` (`0x73c4`) i zapis konfiguracji (`0x93d8`) | BLE wysyła to dwukrotnie, wyłącznie po wejściu w stan połączony; przy rozłączeniu nic nie wysyła [O]; sens wartości w MCU nieznany [N] |
+| `20 0c` | 1 B = 0 | `0x66d6`: MCU wysyła do LED `20 0c 00`, co wyłącza wskaźnik slotu BLE (poprawka: `0x66e2` to obsługa `20 0d`) | BLE wysyła to dwukrotnie, wyłącznie po wejściu w stan połączony; przy rozłączeniu nic nie wysyła [O] |
 | ramki z nadawcą 2 (host przez BLE) | jak od hosta USB | te same procedury co dla węzła 1 | konfiguracja klawiatury przez BLE [O] |
 
 Ramki od hosta po BLE przechodzą przez wirtualny raport HID o ID 2 (18 bajtów w obie strony). To zgadza się z fragmentacją po stronie MCU: dla celu 2 fragment ma 8 bajtów danych, a z 10-bajtowym nagłówkiem daje dokładnie 18 bajtów [I, silnie poparte].
 
-Wniosek o zdarzeniach połączenia: układ BLE wysyła `20 0c 00` przy zmianie stanu GAP, ale MCU nie robi z tym nic widocznego dla BLE poza zapisem bajtu konfiguracji [O]. Wskaźnik gniazda na LED sterują wciśnięcia klawiszy w MCU, a nie stan z BLE [I]. Procedura `cmd 0x40` w MCU jest pusta [O].
+Wniosek o zdarzeniach połączenia: układ BLE wysyła `20 0c 00` po wejściu w stan połączony, a MCU zamienia to na `20 0c 00` do LED, które gasi wskaźnik gniazda [O]. Wskaźnik włączają wciśnięcia klawiszy w MCU (`20 0b`), a wyłącza połączenie [O]. Wcześniejsza wersja tego akapitu przypisywała `20 0c` procedurze `0x66e2`, która obsługuje `20 0d`. Procedura `cmd 0x40` w MCU jest pusta [O].
 
 ## 7. Polecenia MCU do LED (węzeł 4) związane z Bluetoothem
 
@@ -116,6 +118,7 @@ Wniosek o zdarzeniach połączenia: układ BLE wysyła `20 0c 00` przy zmianie s
 | `20 0b` | numer gniazda, 1 (rozgłaszanie) lub 0 (połączenie) | `0x7eac` z `0xa42c` i `0xa444` | podświetlenie wskaźnika gniazda BLE [I] |
 | `20 03` | konfiguracja | `0x7ee8` | początkowa konfiguracja LED po zgłoszeniu gotowości [I] |
 | `20 0f` | 1 B: procent baterii 0-100 | `0x94b2` | poziom baterii policzony z pomiaru ADC (patrz `03-zachowanie-mcu-bluetooth.md`, sekcja 7) [O/I] |
-| `02 01` | 1 B = `0x02` | `0x7f1e` | ping do układu LED (ta sama procedura co w BLE) [O] |
+| `02 01` | 1 B = `0x02` | `0x7f1e` | ping do układu LED; typ ramki zmienia się przy każdym wysłaniu (0x12/0x10) [O] |
+| `20 0c` | 2 B = `00 00` | `0x66d6` | wyłączenie wskaźnika gniazda po połączeniu BLE [O] |
 
-LED odpowiada ramką `01 03` z wersją (u16, `0x0221` = 2.33) i nadawcą 4 (`0x9584` w obrazie LED) [O].
+LED wysyła przy starcie ramkę `01 03` z wersją (u16, `0x0221` = 2.33) i nadawcą 4 (`0x9584` w obrazie LED), a na ping `02 01 02` odpowiada `21 02 02 21` (stan 2 i wersja) [O]. Pozostałe polecenia MCU do LED: `08-weryfikacja-i-nowe-ustalenia.md`, sekcja 3.3.

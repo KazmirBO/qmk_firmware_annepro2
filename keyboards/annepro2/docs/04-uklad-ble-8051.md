@@ -169,18 +169,18 @@ Nie ustawiono `KEY_DIST_LIST`, `KEYSIZE`, `OOB` ani `BOND_FAIL_ACTION` (zostają
 
 - **Kanał ID 2 od hosta** [O]: zapis GATT do raportu output (0x2A4D) trafia do callbacku `1:F2B1`, potem `1:F225`: id 1 wyciąga bit Caps Lock i wysyła `20 07`; **id 2 kolejkuje bajty do bufora cyklicznego XDATA `0x0C60`** (`3:F288`, 0x100 B) i ustawia zdarzenie OSAL `0x0080`. Ten sam bufor zasila handler zdarzeń UART (`1:F3BD`), więc ramki od hosta po BLE trafiają do tego samego parsera co ramki z UART (pętla `1:F0A0`-`1:F13D`). Odpowiedzi dla węzła 2 idą routerem `3:A256` do raportu ID 2 input (`1:F72C`, 18 B). BLE nie składa fragmentów typu 0x10; przekazuje ramki bez zmian [O/I].
 - **Parametry połączenia** [O/I]: lokalnie ustawiane GAPRole 0x310 = 1, 0x311 = 9, 0x312 = 9, 0x313 = 15, 0x314 = 400 (`1:EDC5`-`1:EE57`), czyli żądanie aktualizacji (11,25 ms, latency 15, 4 s). PPCP w GATT (100-200 ms, latency 0, 10 s) to osobna, statyczna wartość. Co host zaakceptuje, pokaże dopiero `btmon`.
-- **Bateria:** `3:D773(1, 1, &0x0A)` ustawia próg krytyczny baterii (10) w `0x0288`. Poziom jest sprawdzany po wejściu w stan połączony (`2:C5D6` wywołuje `3:D827`, gdy `[0x0B55] == 6`); okres timera nieustalony [N].
+- **Bateria:** `3:D773(1, 1, &0x0A)` ustawia próg krytyczny baterii (10) w `0x0288`. Poziom jest sprawdzany w stanie połączonym (`2:C5D6` wywołuje `3:D827`, gdy `[0x0B55] == 6`) i timer jest odnawiany z okresem **15 000** (stała 0x3A98 pod XDATA `0x82DA`, czyli stała z flash widziana przez okno XDATA; jednostka OSAL to ms, więc 15 s) [O/I, runda Ghidry]. Obok leży stała zmiennoprzecinkowa 3,1 ze wzoru napięcia.
 - **Odczyt raportu output ID 2** [O/I]: wartość raportu leży w XDATA `0x0CF7`, a zapis hosta idzie do innego bufora (`0x0C60`). Odczyt zwraca więc bajty sąsiadujące w XDATA, a nie zdefiniowaną zawartość. To wygląda na odsłanianie pamięci, nie na funkcję; czy znajdują się tam dane wrażliwe (np. materiał kluczowy), nie ustalono [N]. Nie udostępniaj wyniku takiego odczytu.
 - **`40 13`** może zwracać śmieci ze stosu (patrz tabela podpoleceń) [I].
 - **`oLoLoL...`** (CPU `0x21B9`-`0x21DB`) nie ma żadnych odwołań w kodzie; wygląda na wypełnienie lub nieużywane dane [O/N].
 - **Scan Parameters** (0x2A4F, 0x2A31): standardowa usługa TI (`4:81C0`-`4:82F0`), nie połączona z parametrami rozgłaszania ani połączenia [I, płytkie sprawdzenie].
-- **HID Control Point** (0x2A4C): przyjmuje tylko 0 (suspend) i 1 (exit suspend), inna wartość daje błąd `0x80`; skutek to wywołanie wskaźnika funkcji z XDATA `0x0B5E` (`2:C372`-`2:C387`), której roli nie ustalono [O/N]. Protocol Mode zapisuje wartość 0 lub 1 do `0x195C` [I].
+- **HID Control Point** (0x2A4C): przyjmuje tylko 0 (suspend) i 1 (exit suspend), inna wartość daje błąd `0x80` [O]. `0x0B5E` to wskaźnik na strukturę callbacków podaną do `HidDev_Register` (`2:BEB1`, wołane z `1:EF15` z adresami XDATA `0x1948` i `0x194D`); w `2:C372` wywoływane jest jej pole +2, czyli `evtCB` biblioteki TI. Control Point przekazuje zdarzenie 0 lub 1, a Protocol Mode (0x2A4E, tylko 1 bajt, wartość 0 lub 1) zapisuje tryb i przekazuje zdarzenie 2 (boot) lub 3 (report) [O, poprawka: wcześniej przypisałem `2:C372` tylko do Control Point]. Kod funkcji `evtCB` w aplikacji nieustalony [N].
 - **`40 12`** zwraca liczbę bondów (1 B); `40 14`-`40 16` interwały połączenia; HCI `0xFC20` (`3:FC4A`, parametry `20 04 07`) to nierozpoznane polecenie vendor TI [N].
 
 ## 9. Niewiadome
 
-1. Okres timera pomiaru baterii (`2:82DA`) i poziom początkowy `0x165B`.
-2. Funkcja wskazywana przez `0x0B5E` (reakcja na suspend i exit suspend).
+1. Poziom początkowy `0x165B` (okres timera baterii ustalony: 15 s, sekcja 8).
+2. Kod funkcji `evtCB` w strukturze callbacków HID (`0x0B5E` wskazuje na tę strukturę, sekcja 8).
 3. Czy bufor `0x0C60` ma osobnych konsumentów dla UART i dla hosta.
 4. Czym jest HCI `0xFC20`.
 5. Zawartość XDATA `0x0CF8`-`0x0D06` (źródło 16 B z odczytu ID 2).

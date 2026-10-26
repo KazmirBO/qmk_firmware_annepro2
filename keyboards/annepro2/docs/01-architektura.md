@@ -12,7 +12,7 @@ Klawiatura ma trzy osobne procesory, a ObinsKit pokazuje ich wersje jako "Applic
 | Light (LED) | `rgb-c18-2.33.2.bin` | 31 828 B | `ea1c8e54ac8ca47c7c6d073b2f8c7977a840c1e9013ca4aea5621f0e98d94dc5` | ARMv6-M (Thumb), ta sama rodzina [I] | 2.33 |
 | Bluetooth (BLE) | `ap2_c18_0205_ble.bin` | 155 648 B | `52dc5c6542ad9b30915ea07f042b46ef19cd8acf4f2dce286a0dbdf11ce7cb92` | 8051 (wektor `LJMP 0x25CB` pod 0x0000) [O] | 2.05 |
 
-Dopasowanie nazw plików do wersji z ObinsKit opiera się na nazwach plików i na tym, że LED zgłasza wersję `0x0221` (2.33), co jest zgodne z ekranem ObinsKit [O]. Wersji MCU i BLE nie potwierdziłem wprost z zawartości obrazów [N].
+Dopasowanie nazw plików do wersji z ObinsKit opiera się na nazwach plików i na tym, że LED zgłasza wersję `0x0221` (2.33), co jest zgodne z ekranem ObinsKit [O]. Wersję MCU potwierdza sam obraz: przy starcie `0x71ec` zapisuje 0x0224 (2.36) w `0x20001187` [O, runda Ghidry, `08-weryfikacja-i-nowe-ustalenia.md`]. BLE zgłasza `0x25` (2.05) [O].
 
 Identyfikacja rdzenia MCU i LED [I]: adresy peryferiów w kodzie (`0x40000000` USART0, `0x40040000` USART1, `0x400A8000` USB, `0x40090000` PDMA, `0x400B0000`-`0x400B6000` GPIO) zgadzają się z nagłówkiem HT32F523x2 z repozytorium ChibiOS-Contrib; numery przerwań w tablicy wektorów (USART0 = 23, USART1 = 24, USB = 29) mają w tych slotach sensowne procedury obsługi.
 
@@ -40,8 +40,10 @@ Szczegóły ramek: `02-protokol-ramek.md`. Zachowanie MCU: `03-zachowanie-mcu-bl
 | Wybór: raporty przez USB czy przez BLE | MCU | zmienna `0x200011ad` (źródło: wejście PC10, rola pinu nieustalona), `0xe1b2`, `0xe2a4` [O] |
 | Obsługa klawiszy gniazd 1-4 (połącz, paruj) | MCU | kody 200-203, `0xa188`, `0xa1b2`, `0xa3d4` [O] |
 | Handshake i wersja | MCU i BLE | `02 01`, `01 03` [O] |
-| Wskaźnik gniazda na diodach | MCU wysyła `20 0b`, LED rysuje | `0x7eac`, handler LED `20 0b` [I] |
-| Sen i wybudzanie | MCU (menedżer zasilania), `11 01` do BLE | `0x705a`, `0x6dde` [I] |
+| Wskaźnik gniazda na diodach | MCU wysyła `20 0b` po klawiszu, a po połączeniu (`20 0c` z BLE) wysyła `20 0c 00`, które gasi wskaźnik; LED rysuje | `0x7eac`, `0x66d6`, handler LED `20 0b`/`20 0c` [O] |
+| Sen i wybudzanie | MCU (menedżer zasilania, RTC jako licznik limitu snu), `11 01` do BLE | `0x705a`, `0x836c`, `0x6dde` [O] |
+
+System operacyjny MCU i LED to Contiki OS (procesy, etimery, protothready); tick systemowy MCU wynosi 10 ms [I mocne]. Szczegóły: `08-weryfikacja-i-nowe-ustalenia.md`, sekcja 3.1.
 
 ## 4. Pamięć RAM (MCU)
 

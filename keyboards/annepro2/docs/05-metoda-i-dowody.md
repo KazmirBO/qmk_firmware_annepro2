@@ -15,7 +15,8 @@
 | Rozpakowanie danych RW | własny skrypt Python (algorytm z sekcji 3) |
 | Adnotacja stałych literałów | własny skrypt Python: do każdej instrukcji `ldr rX, [pc, #n]` dopisuje wartość z puli literałów |
 | Ekstrakcja pól ramek | własny skrypt Python: śledzi stałe w `r0`-`r3` przed wywołaniami funkcji budujących ramki |
-| REA | otwarcie `key-c18-2.36.3.bin` jako `raw-binary` ARM pod 0x4000 potwierdziło identyfikację pliku (SHA-256). Dostawca analizy natywnej (Ghidra) nie jest skonfigurowany w tej instalacji, więc pseudokodu ani wykresów wywołań REA nie wyprodukowało |
+| REA | otwarcie `key-c18-2.36.3.bin` jako `raw-binary` ARM pod 0x4000 potwierdziło identyfikację pliku (SHA-256). REA 6.5.0 importuje surowe obrazy tylko jako ARM 32-bit (bez Thumb i Cortex-M) i nie obsługuje 8051, więc do dekompilacji nie nadaje się dla tych obrazów |
+| Ghidra 12.1.4 (headless, runda z 2026-10-26) | MCU i LED jako `ARM:LE:32:Cortex` z mapą pamięci (flash, SRAM z rozpakowanymi danymi RW, peryferia, rdzeń) i nazwami rejestrów HT32; BLE jako `8051:BE:16:default` z bankami 1-4 jako nakładkami i rozwiązanymi stubami trampoliny `0:25E6`. Eksport pseudokodu wszystkich funkcji i listingów z celami wywołań; wyniki w `08-weryfikacja-i-nowe-ustalenia.md` |
 | Źródła zewnętrzne (tylko do porównania) | nagłówek `ht32f523x2.h` z `qmk/chibios-contrib` (commit `5a9ad82b6ba4f649cdb800e8c2bbc9be2d3ce767`), katalog `keyboards/annepro2` z `qmk/qmk_firmware` (commit `7a1bbf37c5c07da4ea0a162bb139083a46ef40a1`) |
 
 Wnioski z kodu źródłowego QMK są oznaczone jako zewnętrzne. Ramki BLE z `annepro2_ble.c` potwierdzają format zaobserwowany w fabrycznym MCU, ale nie służyły jako jedyny dowód.
@@ -83,8 +84,8 @@ Obraz LED: `0x9584` wysyła `01 03` z wersją; `0xa228` obsługuje `cmd 0x20`; `
 
 ## 5. Ograniczenia
 
-- Brak dekompilatora: wnioski pochodzą z czytania asemblera Thumb, więc część szczegółów (np. dokładne znaczenie parametrów `cmd 0x20` i `cmd 0x50`) pozostaje nieustalona.
+- Pierwsze rundy nie miały dekompilatora i opierały się na asemblerze Thumb. Runda z Ghidrą (`08-weryfikacja-i-nowe-ustalenia.md`) uzupełniła `cmd 0x20`, `cmd 0x30`, `cmd 0x50` i poprawiła kilka wniosków; pseudokod 8051 z Ghidry jest mało czytelny, więc BLE weryfikowano głównie listingiem.
 - Nie przechwytywano ruchu UART ani HID. Część wniosków potwierdzono funkcjonalnie testami na klawiaturze C18 (parowanie i łączenie, Caps Lock przez BLE, bateria, jasność), ale nie bajt po bajcie. Jeśli potrzebne jest potwierdzenie, najtańsza metoda to podsłuch linii UART (analizator stanów logicznych, 115200 8N1) albo przechwycenie ruchu USB HID ObinsKit.
-- Wnioski o fizycznych pinach wynikają z adresów rejestrów GPIO. Schemat C18 z katalogu QMK potwierdził tylko część z nich (PC3 `ROW5`, PB0/PB1 jako UART do LED) i podważył inną (PC0 jest tam `COL5`, a PC10 nie występuje w układzie 48-pinowym), więc role PC0 i PC10 są nieustalone.
+- Wnioski o fizycznych pinach wynikają z adresów rejestrów GPIO. Schemat C18 z katalogu QMK potwierdził część z nich (PB0/PB1 jako UART do LED) i podważył inne (PC0 jest tam `COL5`, PC3 `ROW5`, a PC10 nie występuje w układzie 48-pinowym). Macierz z kodu zgadza się z QMK (bez PC0 i PC3), a PC10 odpowiada przełącznikowi Bluetooth z instrukcji, więc schemat może nie odpowiadać dokładnie tej rewizji płytki [I].
 - Nazwa i wersja obrazów pochodzi z repozytorium zewnętrznego i z ekranu ObinsKit; potwierdzenie względem oficjalnych wydań producenta nie było możliwe.
-- Aktualizacja układu BLE przez ObinsKit nie była analizowana w aplikacji (ObinsKit nie był przedmiotem tej analizy).
+- ObinsKit 1.2.11 przeanalizowano później statycznie (`07-obserwacje-gatt-i-obinskit.md`, `08-weryfikacja-i-nowe-ustalenia.md`, sekcja 6); aplikacji nie uruchamiano.
