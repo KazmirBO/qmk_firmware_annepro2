@@ -149,6 +149,10 @@ void annepro2_ble_connect(uint8_t port) {
     ap2_ble_switch_ble_driver();
 }
 
+/* Send the reports to the BLE MCU without a slot command, as the stock firmware does when its Bluetooth switch is
+ * turned on: a bonded host reconnects on its own, and the BLE MCU starts advertising when a report arrives. */
+void annepro2_ble_use_driver(void) { ap2_ble_switch_ble_driver(); }
+
 void annepro2_ble_disconnect(void) {
     if (host_get_driver() != &ap2_ble_driver) {
         return;

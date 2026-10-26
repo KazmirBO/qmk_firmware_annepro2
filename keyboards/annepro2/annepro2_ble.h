@@ -27,5 +27,6 @@ uint16_t annepro2_ble_version(void);
 void annepro2_ble_broadcast(uint8_t port);
 void annepro2_ble_pair(uint8_t port);
 void annepro2_ble_connect(uint8_t port);
+void annepro2_ble_use_driver(void);
 void annepro2_ble_disconnect(void);
 void annepro2_ble_unpair(void);

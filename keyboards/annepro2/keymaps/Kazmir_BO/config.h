@@ -40,7 +40,8 @@
 
 #define RGB_MATRIX_STARTUP_MODE RGB_MATRIX_SOLID_COLOR
 
-/* Bluetooth slot keys as in the stock firmware: tap connects, hold (500 ms) starts pairing. */
+/* Bluetooth slot keys as in the stock firmware: tap connects, hold starts pairing. The stock firmware waits 5 s;
+ * this keymap keeps the default AP2_BLE_SLOT_HOLD_MS of 500 ms. */
 #define AP2_BLE_SLOT_TAP_HOLD
 
 /* Send the battery level (ADC on PA7) to the Bluetooth MCU, so that the host can show it. The ADC is known for the

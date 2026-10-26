@@ -41,8 +41,9 @@ static const uint8_t led_mcu_wakeup[11] = {0x7b, 0x10, 0x43, 0x10, 0x03, 0x00, 0
 
 bool ble_capslock = false;
 
-/* Handshake state with the BLE MCU. The stock firmware pings the BLE MCU (02 01 02 and 01 03 02)
- * every 50 ms five times and then every 500 ms until the BLE MCU answers with its version. */
+/* Handshake state with the BLE MCU. The stock firmware pings the BLE MCU (02 01 02 and 01 03 02) five times every
+ * 50 ticks of its 10 ms clock (0.5 s) and then every 5 s until the BLE MCU answers with its version. This port pings
+ * ten times faster (50 ms, then 500 ms), which only gets the version sooner. */
 #ifndef AP2_BLE_HANDSHAKE_TRIES
 #    define AP2_BLE_HANDSHAKE_TRIES 24
 #endif
@@ -200,8 +201,15 @@ void keyboard_pre_init_kb(void) {
     keyboard_pre_init_user();
 }
 
+#ifdef AP2_BT_SWITCH
+static void bt_switch_init(void);
+#endif
+
 void keyboard_post_init_kb(void) {
     annepro2_battery_init();
+#ifdef AP2_BT_SWITCH
+    bt_switch_init();
+#endif
     // Start BLE UART
     sdStart(&SD1, &uart_115200_config);
     annepro2_ble_startup();
@@ -233,7 +241,8 @@ void keyboard_post_init_kb(void) {
 #ifdef AP2_BLE_SLOT_TAP_HOLD
 /*
  * Stock behaviour of the four Bluetooth keys: a short press connects to the paired device (40 04 slot),
- * holding the key for AP2_BLE_SLOT_HOLD_MS starts pairing (40 01 slot).
+ * holding the key for AP2_BLE_SLOT_HOLD_MS starts pairing (40 01 slot). The stock firmware waits 5 s;
+ * the default here is shorter.
  */
 #    ifndef AP2_BLE_SLOT_HOLD_MS
 #        define AP2_BLE_SLOT_HOLD_MS 500
@@ -271,12 +280,58 @@ static void slot_tick(void) {
 }
 #endif /* AP2_BLE_SLOT_TAP_HOLD */
 
+#ifdef AP2_BT_SWITCH
+/*
+ * Bluetooth switch on the bottom of the keyboard. The stock firmware reads it on PC10 (pull-down): high selects the
+ * USB output, low the Bluetooth output. Only a change of the switch selects the output, so the Bluetooth keys and
+ * KC_AP2_USB still work in between. The first reading is applied by the first matrix scan, because the USB host
+ * driver is set only after keyboard_post_init_kb().
+ */
+#    ifndef AP2_BT_SWITCH_PIN
+#        define AP2_BT_SWITCH_PIN C10
+#    endif
+#    ifndef AP2_BT_SWITCH_DEBOUNCE_MS
+#        define AP2_BT_SWITCH_DEBOUNCE_MS 50
+#    endif
+
+static int8_t   bt_switch_applied = -1; /* -1: not applied yet, 0: Bluetooth, 1: USB */
+static bool     bt_switch_raw;
+static uint32_t bt_switch_timer;
+
+static void bt_switch_init(void) {
+    gpio_set_pin_input_low(AP2_BT_SWITCH_PIN);
+    bt_switch_raw   = gpio_read_pin(AP2_BT_SWITCH_PIN);
+    bt_switch_timer = timer_read32();
+}
+
+static void bt_switch_task(void) {
+    const bool raw = gpio_read_pin(AP2_BT_SWITCH_PIN);
+    if (raw != bt_switch_raw) {
+        bt_switch_raw   = raw;
+        bt_switch_timer = timer_read32();
+        return;
+    }
+    if (bt_switch_applied == (int8_t)raw || timer_elapsed32(bt_switch_timer) < AP2_BT_SWITCH_DEBOUNCE_MS) return;
+
+    bt_switch_applied = raw;
+    if (raw) {
+        annepro2_ble_disconnect();
+        ap2_led_cancel_blink();
+    } else {
+        annepro2_ble_use_driver();
+    }
+}
+#endif /* AP2_BT_SWITCH */
+
 void matrix_scan_kb(void) {
     ble_poll();
     ble_handshake_task();
     annepro2_battery_task();
 #ifdef AP2_BLE_SLOT_TAP_HOLD
     slot_tick();
+#endif
+#ifdef AP2_BT_SWITCH
+    bt_switch_task();
 #endif
 
     /* While there's data from LED keyboard sent - read it. */
