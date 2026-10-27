@@ -1,6 +1,6 @@
 # Port QMK i narzędzia względem oryginału
 
-Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, katalog `keyboards/annepro2/`) i lokalna gałąź `feature/ble-stock-parity` repozytorium `AnnePro2-Tools` (`b5c02bc`, niepublikowana). Opis zachowania oryginału jest w `03-mcu.md` i `05-ble.md`; tutaj jest tylko to, co port robi, czym różni się od oryginału i gdzie to jest w kodzie. Wszystkie twierdzenia o kodzie portu sprawdzono w kodzie i buildach z 2026-10-27; wyniki testów na klawiaturze są w `08-testy-na-sprzecie.md`.
+Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, katalog `keyboards/annepro2/`; od `f3317b7ece` scalony z `qmk/qmk_firmware` `master` `180f394b48` z 2026-10-16) i lokalna gałąź `feature/ble-stock-parity` repozytorium `AnnePro2-Tools` (`b5c02bc`, niepublikowana). Opis zachowania oryginału jest w `03-mcu.md` i `05-ble.md`; tutaj jest tylko to, co port robi, czym różni się od oryginału i gdzie to jest w kodzie. Wszystkie twierdzenia o kodzie portu sprawdzono w kodzie i buildach z 2026-10-27; wyniki testów na klawiaturze są w `08-testy-na-sprzecie.md`.
 
 ## 1. Funkcje Bluetooth portu
 
@@ -71,7 +71,7 @@ Buildy z `6c03dfe813` z 2026-10-27, bez ostrzeżeń kodu:
 | `c18:default` z `-DAP2_BT_SWITCH` | 37 804 B | `30e7f9764b68f76609fbfc9e2d42c2a216f36e90ec0bd9a4d7fbe29a49ad452b` |
 | `c18:default` z `-DAP2_BLE_SERIAL` | 37 740 B | `14792de6d772b28bb5e5f0145550d3968fc02fadd1e41464f9f64c19c21e799c` |
 
-`c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18).
+`c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18). Po scaleniu z upstream (`f3317b7ece`) cztery cele `c18`/`c15` z keymapami `Kazmir_BO` i `default` dają bajt w bajt te same pliki.
 
 Build `c18:Kazmir_BO` jest powtarzalny: kolejne buildy z tego samego commitu dają bajt w bajt ten sam plik (sprawdzone m.in. dla obrazu wgranego 2026-10-26, `08-testy-na-sprzecie.md`).
 
@@ -96,3 +96,6 @@ Build `c18:Kazmir_BO` jest powtarzalny: kolejne buildy z tego samego commitu daj
 | `6b71633911` | 2026-10-26 | `AP2_BT_SWITCH` włączone w `Kazmir_BO` |
 | `f698d45e48` | 2026-10-27 | dokumentacja przebudowana po pełnej weryfikacji |
 | `6c03dfe813` | 2026-10-27 | wskaźnik baterii z krzywą BLE, `AP2_BLE_SERIAL`, ramka budząca jak w oryginale, `AP2_BT_SWITCH` w `Kazmir_BO` tylko na C18, komentarze zgodne z weryfikacją |
+| `f3317b7ece` | 2026-10-27 | scalenie `qmk/qmk_firmware` `master` (`180f394b48`); jedyna zmiana upstream od bazy `7a1bbf37c5` to plik blokady generatora dokumentacji |
+
+Kolejna synchronizacja z upstream: `git fetch upstream` i `git merge upstream/master` (remote `upstream` wskazuje `https://github.com/qmk/qmk_firmware.git`).
