@@ -207,7 +207,7 @@ Kod nie ustawia `KEY_DIST_LIST`, `KEYSIZE`, `OOB` ani `BOND_FAIL_ACTION`, więc 
 Odczyt przez BlueZ (D-Bus), tylko do odczytu, z klawiatury z firmware QMK na MCU i fabrycznym BLE 2.05 [O, urządzenie]:
 
 - Report Map jest bajt w bajt taka jak plik+0x6000.
-- Device Information jak w §6: numer seryjny jest domyślny, bo QMK nie wysyła `01 10`; System ID same zera.
+- Device Information jak w §6: numer seryjny był domyślny, bo QMK nie wysyłał wtedy `01 10` (od `6c03dfe813` port wysyła `01 10 02` z UDID, `07-port-qmk-i-narzedzia.md` §1); System ID same zera.
 - Appearance 0x0000, PPCP 100-200 ms, latency 0, 10 s.
 - Battery Level: read i notify, host ustawił CCCD na 0x0001; odczyt dał 67 %, wcześniej host pokazywał 73 %, co zgadza się z tym, że poziom tylko maleje.
 - Raporty HID jak w §6. Odczyt raportu wyjściowego ID 2 zwrócił 16 B, których nie zapisano (§6).

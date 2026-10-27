@@ -61,3 +61,4 @@ Stan na 2026-10-27, po weryfikacji z `09-metoda-i-weryfikacja.md` §6. Przy każ
 |---|---|
 | Zgodność procentu baterii z napięciem ogniwa i działanie korekty `AP2_BATTERY_EMPTY_MV` przy niskim napięciu | pomiar multimetrem, w tym tuż po wyłączeniu się klawiatury |
 | Czy wcześniej wgrywane obrazy są identyczne z buildami swoich commitów | build starszych commitów w osobnym drzewie |
+| Czy układ BLE przyjmuje numer seryjny od portu (`AP2_BLE_SERIAL`), czy rekord pod `0x3E00` na danym egzemplarzu zawiera UDID i czy ramka budząca w formacie oryginału działa tak jak poprzednia | wgranie `6c03dfe813` i odczyt Device Information (`08-testy-na-sprzecie.md` §3.1) |

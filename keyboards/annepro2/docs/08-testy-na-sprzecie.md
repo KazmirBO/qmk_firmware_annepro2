@@ -22,6 +22,7 @@ Co to potwierdza z analizy oryginału: format ramek, polecenia `40 01`, `40 04`,
 
 ## 2. Czego nie sprawdzono
 
+- Wersji `6c03dfe813` (2026-10-27) jeszcze nie wgrywano: ramki budzącej BLE w formacie oryginału, numeru seryjnego DIS z UDID (`AP2_BLE_SERIAL`) i wskaźnika baterii z krzywą BLE. Procedura w §3.1.
 - Korekty 0 % baterii (`AP2_BATTERY_EMPTY_MV`) przy niskim napięciu.
 - Zgodności procentu baterii z napięciem zmierzonym multimetrem (napięcie odniesienia 3,1 V i dzielnik 2:1 pochodzą z analizy firmware).
 - Wersji układu BLE odebranej przez port: `annepro2_ble_version()` nie jest nigdzie wyświetlana.
@@ -36,7 +37,8 @@ Co to potwierdza z analizy oryginału: format ramek, polecenia `40 01`, `40 04`,
 1. Caps Lock przez BLE (dioda) i gaszenie migania slotu po połączeniu.
 2. Klawisze slotów: krótkie naciśnięcie łączy, przytrzymanie (`AP2_BLE_SLOT_HOLD_MS`) paruje.
 3. Przełącznik Bluetooth, jeśli włączony: Off daje USB, On Bluetooth, powrót na Off gasi wskaźnik slotu; start z przełącznikiem na On pisze od razu przez Bluetooth.
-4. Multimedia i jasność po BLE, `KC_AP2_BATT`, poziom baterii u hosta.
+4. Multimedia i jasność po BLE, `KC_AP2_BATT`, poziom baterii u hosta; liczba zapalonych klawiszy wskaźnika ma odpowiadać procentowi u hosta (jeden klawisz na 10 %, zaokrąglenie do najbliższego).
+5. Z `AP2_BLE_SERIAL`: Device Information (Serial Number) po ponownym połączeniu pokazuje 32 znaki hex UDID zamiast `0123456789ABCDEF0123456789ABCDEF`; host może trzymać stare dane GATT w pamięci podręcznej, wtedy pomaga ponowne sparowanie.
 
 ### 3.2. Nagranie btmon
 
