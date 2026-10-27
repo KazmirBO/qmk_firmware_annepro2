@@ -129,14 +129,20 @@ uint16_t annepro2_battery_scaled(uint16_t raw) {
 }
 
 uint8_t annepro2_battery_percent(uint16_t raw) {
-    /* The same voltage as the BLE MCU sees, so that the host and the indicator agree. */
+    /* The voltage and the curve of the BLE MCU, so that the indicator shows the level the host shows. The BLE MCU
+     * interpolates linearly between its steps: percent = base + (U - start) / width * 10, cut to an integer. It computes
+     * in floating point, so a reading that falls exactly on a whole percent can come out 1 % lower there. */
     const uint32_t mv = AP2_BATTERY_MV(raw);
     static const struct {
-        uint16_t mv;
-        uint8_t  percent;
-    } curve[] = {{4100, 100}, {4000, 90}, {3900, 80}, {3800, 70}, {3750, 60}, {3700, 50}, {3650, 40}, {3600, 30}, {3500, 20}, {3400, 10}};
+        uint16_t start; /* mV */
+        uint8_t  width; /* mV per 10 %, 0 for the top step */
+        uint8_t  base;  /* percent at start */
+    } curve[] = {{4150, 0, 100}, {4000, 150, 90}, {3900, 100, 80}, {3800, 100, 70}, {3750, 50, 60},
+                 {3700, 50, 50}, {3650, 50, 40},  {3600, 50, 30},  {3500, 100, 20}, {3400, 100, 10}};
     for (uint8_t i = 0; i < sizeof(curve) / sizeof(curve[0]); i++) {
-        if (mv >= curve[i].mv) return curve[i].percent;
+        if (mv < curve[i].start) continue;
+        if (curve[i].width == 0) return curve[i].base;
+        return (uint8_t)(curve[i].base + (mv - curve[i].start) * 10 / curve[i].width);
     }
     return 0;
 }

@@ -102,6 +102,8 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
             if (sub == BLE_GLOBAL_VERSION) {
                 ble_version = ((uint16_t)(d0 >> 4) << 8) | (d0 & 0x0f); /* 0x25 -> 0x0205 (2.05) */
                 ble_ready   = true;
+                /* The BLE MCU also reports its version after it restarts, which clears the serial number. */
+                annepro2_ble_send_serial();
             }
             break;
         default:
@@ -283,8 +285,9 @@ static void slot_tick(void) {
 #ifdef AP2_BT_SWITCH
 /*
  * Bluetooth switch on the bottom of the keyboard. The stock firmware reads it on PC10 (pull-down): high selects the
- * USB output, low the Bluetooth output. Only a change of the switch selects the output, so the Bluetooth keys and
- * KC_AP2_USB still work in between. The first reading is applied by the first matrix scan, because the USB host
+ * USB output, low the Bluetooth output. The stock firmware applies the level at every reading, without debouncing;
+ * here only a change of the switch, stable for AP2_BT_SWITCH_DEBOUNCE_MS, selects the output, so the Bluetooth keys
+ * and KC_AP2_USB still work in between. The first reading is applied by the first matrix scan, because the USB host
  * driver is set only after keyboard_post_init_kb().
  */
 #    ifndef AP2_BT_SWITCH_PIN

@@ -54,7 +54,7 @@
 void     annepro2_battery_init(void);
 bool     annepro2_battery_read(uint16_t *raw);   /* trimmed mean of 8 samples, false on timeout */
 uint16_t annepro2_battery_scaled(uint16_t raw);  /* calibrated 12-bit reading: the scale and the low end correction */
-uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100 for a calibrated reading, the curve of the stock firmware */
+uint8_t  annepro2_battery_percent(uint16_t raw); /* 0-100 for a calibrated reading, the curve of the BLE MCU */
 
 void annepro2_battery_task(void);           /* periodic send to the BLE MCU and hiding of the indicator */
 void annepro2_battery_request_send(void);   /* send the next reading right away, e.g. after a connection */

@@ -30,3 +30,12 @@ void annepro2_ble_connect(uint8_t port);
 void annepro2_ble_use_driver(void);
 void annepro2_ble_disconnect(void);
 void annepro2_ble_unpair(void);
+
+#ifdef AP2_BLE_SERIAL
+#    ifndef AP2_DEVICE_RECORD_ADDR
+#        error "AP2_BLE_SERIAL needs AP2_DEVICE_RECORD_ADDR, the flash address of the stock device record (C18 only)"
+#    endif
+void annepro2_ble_send_serial(void);
+#else
+static inline void annepro2_ble_send_serial(void) {}
+#endif
