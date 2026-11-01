@@ -80,9 +80,8 @@ static uint32_t ble_rx_timer;
 
 /* The header is validated by ble_rx_byte() before the body is read. */
 static void ble_handle_frame(const uint8_t *f, uint16_t len) {
-    /* The BLE MCU also forwards frames from a host to the other nodes; only its own frames to this MCU count. A
-     * fragmented frame counts only when it is complete in itself (one fragment, index 0). */
-    if (f[BLE_RX_ROUTE] != BLE_ROUTE_FROM_BLE) return;
+    /* ble_rx_byte() passes only frames routed from the BLE MCU. A fragmented frame counts only when it is complete in
+     * itself (one fragment, index 0). */
     if (f[BLE_RX_TYPE] == BLE_TYPE_FRAGMENT && f[BLE_RX_SEQ] != 0x10) return;
     if (len < 3) return; /* no data byte */
     const uint8_t cmd = f[BLE_RX_CMD], sub = f[BLE_RX_SUB];
@@ -228,79 +227,121 @@ static void leds_switch(bool on) {
 
 /*
  * The keyboard builds with NO_USB_STARTUP_CHECK (c15/c18 rules.mk). Otherwise QMK stops the whole keyboard task while
- * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. This does what that loop
- * did, but only while the reports go to USB: power down (with RGB_MATRIX_SLEEP the LEDs go dark), scan every 17 ms,
- * wake the host with a new key press and, as QMK does, let that key do nothing else. The USB wakeup event still runs
- * suspend_wakeup_init(). It runs from matrix_scan_kb(), after the scan and before the key events are processed.
+ * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. Instead:
+ * - every key keeps working; the senders of QMK's USB host driver are wrapped (usb_wrap_driver()), and a report that
+ *   presses something while the USB host sleeps wakes the host and is dropped, as with QMK's own loop. A key that sends
+ *   nothing (layer keys, the Bluetooth slots) wakes nothing, so Fn and a slot key switch to Bluetooth while the host
+ *   sleeps on;
+ * - while the reports go to USB and the host sleeps, the keyboard powers down once (with RGB_MATRIX_SLEEP the LEDs go
+ *   dark) and scans every 17 ms, as in QMK's loop;
+ * - the USB peripheral cannot tell a sleeping host from an unplugged cable. If a host that should wake does not
+ *   resume within AP2_USB_WAKE_TIMEOUT_MS, it is taken as gone until the bus changes state, and the power down ends.
+ * The USB wakeup event still runs suspend_wakeup_init().
  */
 #ifndef USB_GETSTATUS_REMOTE_WAKEUP_ENABLED
 #    define USB_GETSTATUS_REMOTE_WAKEUP_ENABLED (2U)
 #endif
+#ifndef AP2_USB_WAKE_TIMEOUT_MS
+#    define AP2_USB_WAKE_TIMEOUT_MS 2000
+#endif
+#define AP2_USB_WAKE_RETRY_MS 500
 
-static matrix_row_t usb_known_keys[MATRIX_ROWS]; /* keys down at the last pass: only a new press can wake the host */
-static matrix_row_t usb_wake_keys[MATRIX_ROWS];  /* pressed while it slept: pre_process_record_kb() decides */
+static bool     usb_gone;         /* suspended, and did not resume when asked: no host on the cable */
+static bool     usb_wake_pending; /* a report asked the sleeping host to wake */
+static uint32_t usb_wake_timer;
 
 /* Only a host that had configured the keyboard can be asleep: the USB peripheral may also report a suspend with no
- * host at all (on battery, on a charger), and then the keys must work as usual. */
-static bool usb_host_asleep(void) { return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE; }
+ * host at all (on battery, on a charger). */
+static bool usb_host_asleep(void) {
+    return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE && !usb_gone;
+}
+
+bool annepro2_usb_host_in_use(void) { return USB_DRIVER.state == USB_ACTIVE || usb_host_asleep(); }
+
+/* A report to the sleeping host: wake it if it allows that, and take it as gone if it does not resume. */
+static void usb_report_while_asleep(void) {
+    if (!usb_wake_pending || timer_elapsed32(usb_wake_timer) >= AP2_USB_WAKE_RETRY_MS) {
+        if (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED) usbWakeupHost(&USB_DRIVER);
+        if (!usb_wake_pending) usb_wake_timer = timer_read32(); /* the timeout runs from the first request */
+        usb_wake_pending = true;
+    }
+}
+
+/* QMK's USB host driver (tmk_core/protocol/chibios/chibios.c) and its senders (usb_main.c). */
+extern host_driver_t chibios_driver;
+void                 send_keyboard(report_keyboard_t *report);
+void                 send_nkro(report_nkro_t *report);
+void                 send_mouse(report_mouse_t *report);
+void                 send_extra(report_extra_t *report);
+
+static bool usb_report_pressed(const uint8_t *data, uint8_t n) {
+    for (uint8_t i = 0; i < n; i++) {
+        if (data[i]) return true;
+    }
+    return false;
+}
+
+static void usb_proxy_keyboard(report_keyboard_t *report) {
+    if (usb_host_asleep() && usb_report_pressed(&report->mods, 8)) usb_report_while_asleep();
+    send_keyboard(report);
+}
+
+static void usb_proxy_nkro(report_nkro_t *report) {
+    if (usb_host_asleep() && (report->mods || usb_report_pressed(report->bits, sizeof(report->bits)))) usb_report_while_asleep();
+    send_nkro(report);
+}
+
+static void usb_proxy_mouse(report_mouse_t *report) {
+    if (usb_host_asleep() && (report->buttons || report->x || report->y || report->v || report->h)) usb_report_while_asleep();
+    send_mouse(report);
+}
+
+static void usb_proxy_extra(report_extra_t *report) {
+    if (usb_host_asleep() && report->usage) usb_report_while_asleep();
+    send_extra(report);
+}
+
+/* The senders are replaced in QMK's own driver, before it is set: no copy of the driver in the short RAM of the C15,
+ * and the Bluetooth driver goes back to the wrapped one. keyboard_leds and the rest are used as they are. */
+static void usb_wrap_driver(void) {
+    chibios_driver.send_keyboard = usb_proxy_keyboard;
+    chibios_driver.send_nkro     = usb_proxy_nkro;
+    chibios_driver.send_mouse    = usb_proxy_mouse;
+    chibios_driver.send_extra    = usb_proxy_extra;
+}
 
 static void usb_suspend_task(void) {
     static bool powered_down;
-    const bool  usb_asleep = usb_host_asleep();
-    if (!usb_asleep || annepro2_ble_is_active()) {
-        /* Switched to Bluetooth while the USB host sleeps: undo the power down here, no USB wakeup will do it. */
-        if (powered_down && usb_asleep) suspend_wakeup_init_quantum();
+    if (USB_DRIVER.state != USB_SUSPENDED) {
+        usb_gone         = false; /* reset, configured or resumed: a host is there again */
+        usb_wake_pending = false;
+    } else if (usb_wake_pending && timer_elapsed32(usb_wake_timer) >= AP2_USB_WAKE_TIMEOUT_MS) {
+        usb_gone         = true;
+        usb_wake_pending = false;
+    }
+    if (!usb_host_asleep() || annepro2_ble_is_active()) {
+        /* Switched to Bluetooth, or no host after all: undo the power down here, no USB wakeup will do it. */
+        if (powered_down && USB_DRIVER.state == USB_SUSPENDED) suspend_wakeup_init_quantum();
         powered_down = false;
         return;
     }
     if (!powered_down) {
         powered_down = true;
-        for (uint8_t row = 0; row < MATRIX_ROWS; row++) usb_known_keys[row] = matrix_get_row(row); /* held from before */
+        suspend_power_down_quantum(); /* once, as on entering QMK's suspend loop */
     }
-    /* As in QMK's own loop: the power down hooks run on every pass, and the 17 ms wait of suspend_power_down() keeps
-     * the keyboard from scanning at full speed while the host sleeps. */
-    suspend_power_down();
-    /* Only a host that allows remote wakeup can be woken. Otherwise the keys work as usual (the USB driver drops the
-     * reports to the sleeping host), so that the slot keys can still switch to Bluetooth. */
-    const bool can_wake = USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED;
-    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
-        const matrix_row_t now = matrix_get_row(row);
-        if (can_wake) usb_wake_keys[row] |= now & ~usb_known_keys[row];
-        usb_known_keys[row] = now;
-    }
-}
-
-bool pre_process_record_kb(uint16_t keycode, keyrecord_t *record) {
-    const uint8_t      row = record->event.key.row, col = record->event.key.col;
-    const matrix_row_t bit = (matrix_row_t)1 << col;
-    if (row < MATRIX_ROWS && col < MATRIX_COLS && (usb_wake_keys[row] & bit)) {
-        if (record->event.pressed && (IS_QK_MOMENTARY(keycode) || IS_QK_KB(keycode))) {
-            /* A layer key or a key of this keyboard (Bluetooth slots, KC_AP2_USB) sends nothing to the host: it works and
-             * does not wake the host, so Fn2 and a slot key switch to Bluetooth while the USB host sleeps on. */
-            usb_wake_keys[row] &= ~bit;
-        } else {
-            /* Any other key only wakes the host: its press and its release are dropped, before tap-hold sees them, as
-             * keypress_is_wakeup_key() does in QMK's own suspend loop. */
-            if (record->event.pressed) {
-                usbWakeupHost(&USB_DRIVER);
-            } else {
-                usb_wake_keys[row] &= ~bit;
-            }
-            return false;
-        }
-    }
-    return pre_process_record_user(keycode, record);
+    wait_ms(17); /* the rhythm of QMK's suspend loop: no scanning at full speed while the host sleeps */
 }
 
 /* A USB host that wakes up runs suspend_wakeup_init(), which clears the held keys and mods even while the reports go to
- * Bluetooth. The Bluetooth state at the end of each loop is kept while that can happen and put back in that case, so
- * the host on Bluetooth sees no change. */
+ * Bluetooth. The Bluetooth state at the end of each loop is kept and put back in that case, so the host on Bluetooth
+ * sees no change. It is kept whenever Bluetooth is active: the resume interrupt sets the USB state back before the
+ * queued wakeup event runs, so a check of the USB state here would come too late. */
 static report_keyboard_t ble_saved_report;
 static uint8_t           ble_saved_mods;
 static bool              ble_state_saved;
 
 void housekeeping_task_kb(void) {
-    ble_state_saved = annepro2_ble_is_active() && USB_DRIVER.state == USB_SUSPENDED;
+    ble_state_saved = annepro2_ble_is_active();
     if (ble_state_saved) {
         ble_saved_report = *keyboard_report;
         ble_saved_mods   = get_mods();
@@ -309,7 +350,7 @@ void housekeeping_task_kb(void) {
 }
 
 void suspend_wakeup_init_kb(void) {
-    /* Not after a switch to Bluetooth in this loop, or when nothing was asleep: then there is no state saved for it. */
+    /* Not after a switch to Bluetooth in this loop: then there is no state saved for it yet. */
     if (ble_state_saved && annepro2_ble_is_active()) {
         *keyboard_report = ble_saved_report;
         set_mods(ble_saved_mods);
@@ -339,6 +380,7 @@ void bootloader_jump(void) {
 }
 
 void keyboard_pre_init_kb(void) {
+    usb_wrap_driver();
     // Start LED UART
     sdStart(&SD0, &uart_115200_config);
     /* Let the LED chip settle a bit before switching the mode.

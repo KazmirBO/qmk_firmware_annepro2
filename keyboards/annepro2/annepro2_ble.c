@@ -22,7 +22,6 @@
 #include "host.h"
 #include "host_driver.h"
 #include "report.h"
-#include "usb_main.h"
 
 /* -------------------- Static Function Prototypes -------------------------- */
 static uint8_t ap2_ble_leds(void);
@@ -67,6 +66,7 @@ static host_driver_t ap2_ble_driver = {
 /* Sub-commands sent to the BLE MCU. */
 enum {
     BLE_GLOBAL_BATTERY  = 0x05, /* raw 12-bit ADC reading, little-endian */
+    BLE_GLOBAL_DEVINFO  = 0x10, /* device information: id, then the text (id 2 = DIS Serial Number) */
     BLE_KEYBOARD_REPORT = 0x04, /* 8-byte boot keyboard report */
     BLE_KEYBOARD_MEDIA  = 0x08, /* AP2 media bits + 3 reserved bytes */
     BLE_BLE_PAIR        = 0x01, /* advertise for pairing on a slot */
@@ -75,7 +75,7 @@ enum {
 };
 
 #define BLE_TX_HEADER_SIZE 8
-#define BLE_TX_DATA_MAX 8
+#define BLE_TX_DATA_MAX 33 /* the longest data: the serial number (id + 32 characters) */
 
 /* Send an array as the data, checked against the frame buffer of ble_send() at compile time. */
 #define BLE_SEND_ARRAY(cmd, sub, array)                                                  \
@@ -94,13 +94,6 @@ static const uint8_t ble_mcu_bootload[11] = {
     0x7b, 0x10, 0x51, 0x10, 0x03, 0x00, 0x00, 0x7d,
     0x02, 0x01, 0x01,  /* FW, IapMode, flag=IAP(0x01) */
 };
-
-#ifdef AP2_BLE_SERIAL
-static const uint8_t ble_mcu_serial[11] = {
-    0x7b, 0x12, 0x53, 0x00, 0x23, 0x00, 0x00, 0x7d,
-    0x01, 0x10, 0x02,  /* GLOBAL, device info, id 2 (DIS Serial Number); followed by 32 characters */
-};
-#endif
 
 static host_driver_t *last_host_driver = NULL;
 #ifdef NKRO_ENABLE
@@ -136,10 +129,14 @@ bool annepro2_ble_is_active(void) { return host_get_driver() == &ap2_ble_driver;
 void annepro2_ble_set_capslock(bool on) { ble_capslock = on; }
 
 /* A host connected (20 0c, sent twice per connection). After pairing, the reports follow it to Bluetooth unless a USB
- * host is in use, so that a keyboard on battery can be used as soon as the new host pairs. */
+ * host is in use (also a sleeping one), so that a keyboard on battery can be used as soon as the new host pairs. The
+ * BLE MCU may connect any bonded host (after annepro2_ble_use_driver() it picks one itself), so its Caps Lock state is
+ * unknown until it writes its LED report. The BLE MCU sends both 20 0c on entering the connected state, before the
+ * host can write that report, so the reset cannot hide a 20 07 of the same connection (docs/05-ble.md). */
 void annepro2_ble_host_connected(void) {
-    if (pair_pending && USB_DRIVER.state != USB_ACTIVE) ap2_ble_switch_ble_driver();
+    if (pair_pending && !annepro2_usb_host_in_use()) ap2_ble_switch_ble_driver();
     pair_pending = false;
+    ble_capslock = false;
 }
 
 #ifdef AP2_BLE_SERIAL
@@ -159,13 +156,12 @@ void annepro2_ble_send_serial(void) {
     }
     if (blank || erased) return; /* no device record */
 
-    uint8_t buf[sizeof(ble_mcu_serial) + 32];
-    memcpy(buf, ble_mcu_serial, sizeof(ble_mcu_serial));
+    uint8_t data[1 + 32] = {0x02}; /* id 2: DIS Serial Number */
     for (uint8_t i = 0; i < 16; i++) {
-        buf[sizeof(ble_mcu_serial) + 2 * i]     = hex[udid[i] >> 4];
-        buf[sizeof(ble_mcu_serial) + 2 * i + 1] = hex[udid[i] & 0x0f];
+        data[1 + 2 * i]     = hex[udid[i] >> 4];
+        data[1 + 2 * i + 1] = hex[udid[i] & 0x0f];
     }
-    sdWrite(&SD1, buf, sizeof(buf));
+    BLE_SEND_ARRAY(BLE_CMD_GLOBAL, BLE_GLOBAL_DEVINFO, data);
 }
 #endif
 

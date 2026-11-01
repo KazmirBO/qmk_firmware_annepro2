@@ -56,8 +56,8 @@ static uint32_t shown_timer;
 /* The indicator is written one key at a time, when the LED UART has room, so that it never blocks the matrix scan
  * (ten keys at once are 110 bytes). */
 #    define DISPLAY_KEYS 10
-#    define DISPLAY_SET_SIZE (5 + 6)   /* protocol header + row, column, colour */
-#    define DISPLAY_UNSET_SIZE (5 + 2) /* protocol header + row, column */
+#    define DISPLAY_SET_SIZE PROTO_TX_MESSAGE_SIZE(6)   /* row, column, colour */
+#    define DISPLAY_UNSET_SIZE PROTO_TX_MESSAGE_SIZE(2) /* row, column */
 static uint16_t  display_todo; /* bit i: key 1 + i of the number row still to write */
 static bool      display_set;  /* write the level, or clear the keys */
 static uint8_t   display_lit;
