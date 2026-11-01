@@ -77,6 +77,13 @@ enum {
 #define BLE_TX_HEADER_SIZE 8
 #define BLE_TX_DATA_MAX 8
 
+/* Send an array as the data, checked against the frame buffer of ble_send() at compile time. */
+#define BLE_SEND_ARRAY(cmd, sub, array)                                                  \
+    do {                                                                                 \
+        _Static_assert(sizeof(array) <= BLE_TX_DATA_MAX, "too much data for ble_send()"); \
+        ble_send(cmd, sub, array, sizeof(array));                                        \
+    } while (0)
+
 /* 02 01 02 lets the BLE MCU leave its bootloader; the BLE application ignores it. Same frame as the stock firmware. */
 static const uint8_t ble_mcu_wakeup[11] = {
     0x7b, 0x10, 0x53, 0x10, 0x03, 0x00, 0x00, 0x7d,
@@ -116,7 +123,7 @@ void annepro2_ble_startup(void) { sdWrite(&SD1, ble_mcu_wakeup, sizeof(ble_mcu_w
 
 void annepro2_ble_send_battery(uint16_t raw) {
     const uint8_t data[] = {raw & 0xff, raw >> 8};
-    ble_send(BLE_CMD_GLOBAL, BLE_GLOBAL_BATTERY, data, sizeof(data));
+    BLE_SEND_ARRAY(BLE_CMD_GLOBAL, BLE_GLOBAL_BATTERY, data);
 }
 
 void annepro2_ble_request_version(void) {
@@ -174,13 +181,15 @@ void annepro2_ble_pair(uint8_t port) {
 }
 
 /* Without AP2_BLE_SLOT_TAP_HOLD: the first press pairs (a new host may connect, so it resets like a pairing), a second
- * press on the same slot connects. */
+ * press on the same slot connects; it still advertises first, as before, but keeps the known state of that host. */
 void annepro2_ble_broadcast(uint8_t port) {
     static int8_t lastBroadcast = -1;
     if (port > 3) port = 3;
-    annepro2_ble_pair(port);
     if (lastBroadcast == port) {
+        ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
         annepro2_ble_connect(port);
+    } else {
+        annepro2_ble_pair(port);
     }
     lastBroadcast = port;
 }
@@ -220,7 +229,8 @@ void annepro2_ble_unpair(void) {
 
 /* ------------------- Static Function Implementation ----------------------- */
 
-/* Single frame from the main MCU to the BLE MCU; the length is derived from the data. */
+/* Single frame from the main MCU to the BLE MCU; the length is derived from the data. Arrays go through
+ * BLE_SEND_ARRAY(), which checks their size; the cut below only keeps the buffer safe. */
 static void ble_send(uint8_t cmd, uint8_t sub, const void *data, uint8_t n) {
     if (n > BLE_TX_DATA_MAX) n = BLE_TX_DATA_MAX;
     uint8_t buf[BLE_TX_HEADER_SIZE + 2 + BLE_TX_DATA_MAX] = {
@@ -276,13 +286,14 @@ static inline uint8_t CONSUMER2AP2(uint16_t usage) {
 static void ap2_ble_extra(report_extra_t *report) {
     if (report->report_id == REPORT_ID_CONSUMER) {
         const uint8_t data[4] = {CONSUMER2AP2(report->usage)}; /* AP2 usage byte + 3 reserved */
-        ble_send(BLE_CMD_KEYBOARD, BLE_KEYBOARD_MEDIA, data, sizeof(data));
+        BLE_SEND_ARRAY(BLE_CMD_KEYBOARD, BLE_KEYBOARD_MEDIA, data);
     }
 }
 
 /* The BLE MCU takes the 8-byte boot layout: mods, reserved, keys[6]. With KEYBOARD_SHARED_EP the report starts with
  * a report ID, so the copy starts at mods instead of at the start of the report. */
 _Static_assert(offsetof(report_keyboard_t, keys) + KEYBOARD_REPORT_KEYS - offsetof(report_keyboard_t, mods) == 8, "the BLE keyboard report is 8 bytes");
+_Static_assert(8 <= BLE_TX_DATA_MAX, "the keyboard report does not fit ble_send()");
 
 /*!
  * @brief  Send keyboard HID report for Bluetooth driver

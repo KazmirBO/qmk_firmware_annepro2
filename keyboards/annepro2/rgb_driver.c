@@ -21,6 +21,7 @@
 #    include "rgb_matrix.h"
 #    include "ap2_led.h"
 #    include "protocol.h"
+#    include "timer.h"
 
 static uint8_t led_pos[RGB_MATRIX_LED_COUNT];
 static uint8_t led_row[RGB_MATRIX_LED_COUNT];
@@ -38,7 +39,9 @@ static uint8_t dirty_rows = 0;
  *   keys, key presses) so that they never wait either;
  * - the rows that did not fit go out from ap2_rgb_flush_pending() as soon as there is room, in turn, so every row gets
  *   its share when the UART cannot keep up. A row that the next frame has already started to change waits for that
- *   frame's flush, so a half rendered row is never sent.
+ *   frame's flush, so a half rendered row is never sent;
+ * - the protocol has no acknowledgement, so while nothing waits one row is sent again every AP2_LED_REFRESH_MS (each
+ *   row once a second by default): a lost message or a reset of the LED MCU heals even with a static effect.
  */
 #    define ROW_MESSAGE_SIZE (5 + 1 + NUM_COLUMN * sizeof(ap2_led_t)) /* protocol header, row number, colours */
 #    ifndef AP2_LED_TX_RESERVE
@@ -46,13 +49,25 @@ static uint8_t dirty_rows = 0;
 #    endif
 _Static_assert(SERIAL_BUFFERS_SIZE >= ROW_MESSAGE_SIZE + AP2_LED_TX_RESERVE, "the LED UART queue cannot take a row");
 
+#    ifndef AP2_LED_REFRESH_MS
+#        define AP2_LED_REFRESH_MS 200
+#    endif
+
 #    define ALL_ROWS ((1 << NUM_ROW) - 1)
 
-static uint8_t pending_rows; /* flushed but not sent yet */
-static uint8_t next_row;     /* where the round robin goes on */
+static uint8_t  pending_rows; /* flushed but not sent yet */
+static uint8_t  next_row;     /* where the round robin goes on */
+static uint8_t  refresh_row;
+static uint32_t refresh_timer;
 
 void ap2_rgb_flush_pending(void) {
+    if (!pending_rows && timer_elapsed32(refresh_timer) >= AP2_LED_REFRESH_MS) {
+        refresh_timer = timer_read32();
+        pending_rows  = 1 << refresh_row;
+        refresh_row   = (refresh_row + 1) % NUM_ROW;
+    }
     const uint8_t ready = pending_rows & ~dirty_rows;
+    if (!ready) return;
     for (uint8_t i = 0; i < NUM_ROW; i++) {
         const uint8_t row = next_row;
         if (ready & (1 << row)) {

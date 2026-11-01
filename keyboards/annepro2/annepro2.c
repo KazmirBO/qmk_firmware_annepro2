@@ -120,8 +120,8 @@ static uint16_t ble_rx_len(void) { return ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble
 
 /* Whether the bytes received so far (ble_rx[0] is always the sync byte) can be the start of a frame. The stock
  * firmware accepts only the two frame types, and the header ends with the sync byte and gives a length of at most
- * BLE_RX_SKIP_MAX. A sync byte in the body of a frame that is held here means that a byte of that frame was lost and
- * the next frame has started: no frame handled here carries 0x7b. */
+ * BLE_RX_SKIP_MAX. A sync byte in the body of a frame that is held here (only short frames from the BLE MCU, which
+ * never carry 0x7b) means that a byte of that frame was lost and the next frame has started. */
 static bool ble_rx_valid(void) {
     if (ble_rx_pos > BLE_RX_TYPE && ble_rx[BLE_RX_TYPE] != BLE_TYPE_SINGLE && ble_rx[BLE_RX_TYPE] != BLE_TYPE_FRAGMENT) return false;
     if (ble_rx_pos < BLE_RX_HEADER_SIZE) return true;
@@ -150,8 +150,9 @@ static void ble_rx_byte(uint8_t byte) {
     /* A rejected frame leaves at most 7 bytes, so a header can only be complete when the byte appended here ends it. */
     if (ble_rx_pos < BLE_RX_HEADER_SIZE) return;
     const uint16_t len = ble_rx_len();
-    if (len > BLE_RX_BODY_MAX) {
-        /* Longer than any frame handled here: drop it by its length, so that its body is not scanned for frames. */
+    if (len > BLE_RX_BODY_MAX || ble_rx[BLE_RX_ROUTE] != BLE_ROUTE_FROM_BLE) {
+        /* Longer than any frame handled here, or not from the BLE MCU (it forwards frames from a host unchanged): drop it
+         * by its length, so that its body, which may carry 0x7b, is not scanned for frames. */
         ble_rx_skip = len;
         ble_rx_pos  = 0;
         return;
@@ -228,20 +229,24 @@ static void leds_switch(bool on) {
 /*
  * The keyboard builds with NO_USB_STARTUP_CHECK (c15/c18 rules.mk). Otherwise QMK stops the whole keyboard task while
  * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. This does what that loop
- * did, but only while the reports go to USB: power down once (with RGB_MATRIX_SLEEP the LEDs go dark), wake the host
- * with a new key press and, as QMK does, let that key do nothing else. The USB wakeup event still runs
+ * did, but only while the reports go to USB: power down (with RGB_MATRIX_SLEEP the LEDs go dark), scan every 17 ms,
+ * wake the host with a new key press and, as QMK does, let that key do nothing else. The USB wakeup event still runs
  * suspend_wakeup_init(). It runs from matrix_scan_kb(), after the scan and before the key events are processed.
  */
 #ifndef USB_GETSTATUS_REMOTE_WAKEUP_ENABLED
 #    define USB_GETSTATUS_REMOTE_WAKEUP_ENABLED (2U)
 #endif
 
-static matrix_row_t usb_sleep_keys[MATRIX_ROWS]; /* held since before the host slept: they do not wake it */
-static matrix_row_t usb_wake_keys[MATRIX_ROWS];  /* pressed while it slept: pre_process_record_kb() drops them */
+static matrix_row_t usb_known_keys[MATRIX_ROWS]; /* keys down at the last pass: only a new press can wake the host */
+static matrix_row_t usb_wake_keys[MATRIX_ROWS];  /* pressed while it slept: pre_process_record_kb() decides */
+
+/* Only a host that had configured the keyboard can be asleep: the USB peripheral may also report a suspend with no
+ * host at all (on battery, on a charger), and then the keys must work as usual. */
+static bool usb_host_asleep(void) { return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE; }
 
 static void usb_suspend_task(void) {
     static bool powered_down;
-    const bool  usb_asleep = USB_DRIVER.state == USB_SUSPENDED;
+    const bool  usb_asleep = usb_host_asleep();
     if (!usb_asleep || annepro2_ble_is_active()) {
         /* Switched to Bluetooth while the USB host sleeps: undo the power down here, no USB wakeup will do it. */
         if (powered_down && usb_asleep) suspend_wakeup_init_quantum();
@@ -250,40 +255,52 @@ static void usb_suspend_task(void) {
     }
     if (!powered_down) {
         powered_down = true;
-        for (uint8_t row = 0; row < MATRIX_ROWS; row++) usb_sleep_keys[row] = matrix_get_row(row);
-        suspend_power_down_quantum();
+        for (uint8_t row = 0; row < MATRIX_ROWS; row++) usb_known_keys[row] = matrix_get_row(row); /* held from before */
     }
-    bool pressed = false;
+    /* As in QMK's own loop: the power down hooks run on every pass, and the 17 ms wait of suspend_power_down() keeps
+     * the keyboard from scanning at full speed while the host sleeps. */
+    suspend_power_down();
+    /* Only a host that allows remote wakeup can be woken. Otherwise the keys work as usual (the USB driver drops the
+     * reports to the sleeping host), so that the slot keys can still switch to Bluetooth. */
+    const bool can_wake = USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED;
     for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
         const matrix_row_t now = matrix_get_row(row);
-        usb_sleep_keys[row] &= now; /* released and pressed again: a new press */
-        const matrix_row_t new_keys = now & ~usb_sleep_keys[row] & ~usb_wake_keys[row];
-        usb_wake_keys[row] |= new_keys;
-        pressed |= new_keys != 0;
+        if (can_wake) usb_wake_keys[row] |= now & ~usb_known_keys[row];
+        usb_known_keys[row] = now;
     }
-    if (pressed && (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED)) usbWakeupHost(&USB_DRIVER);
 }
 
 bool pre_process_record_kb(uint16_t keycode, keyrecord_t *record) {
-    /* A key pressed while the USB host slept only wakes it: its press and its release are dropped, before tap-hold
-     * sees them, as keypress_is_wakeup_key() does in QMK's own suspend loop. */
-    const uint8_t row = record->event.key.row, col = record->event.key.col;
-    if (row < MATRIX_ROWS && col < MATRIX_COLS && (usb_wake_keys[row] & ((matrix_row_t)1 << col))) {
-        if (!record->event.pressed) usb_wake_keys[row] &= ~((matrix_row_t)1 << col);
-        return false;
+    const uint8_t      row = record->event.key.row, col = record->event.key.col;
+    const matrix_row_t bit = (matrix_row_t)1 << col;
+    if (row < MATRIX_ROWS && col < MATRIX_COLS && (usb_wake_keys[row] & bit)) {
+        if (record->event.pressed && (IS_QK_MOMENTARY(keycode) || IS_QK_KB(keycode))) {
+            /* A layer key or a key of this keyboard (Bluetooth slots, KC_AP2_USB) sends nothing to the host: it works and
+             * does not wake the host, so Fn2 and a slot key switch to Bluetooth while the USB host sleeps on. */
+            usb_wake_keys[row] &= ~bit;
+        } else {
+            /* Any other key only wakes the host: its press and its release are dropped, before tap-hold sees them, as
+             * keypress_is_wakeup_key() does in QMK's own suspend loop. */
+            if (record->event.pressed) {
+                usbWakeupHost(&USB_DRIVER);
+            } else {
+                usb_wake_keys[row] &= ~bit;
+            }
+            return false;
+        }
     }
     return pre_process_record_user(keycode, record);
 }
 
 /* A USB host that wakes up runs suspend_wakeup_init(), which clears the held keys and mods even while the reports go to
- * Bluetooth. The Bluetooth state at the end of each loop is kept and put back in that case, so the host on Bluetooth
- * sees no change. */
+ * Bluetooth. The Bluetooth state at the end of each loop is kept while that can happen and put back in that case, so
+ * the host on Bluetooth sees no change. */
 static report_keyboard_t ble_saved_report;
 static uint8_t           ble_saved_mods;
 static bool              ble_state_saved;
 
 void housekeeping_task_kb(void) {
-    ble_state_saved = annepro2_ble_is_active();
+    ble_state_saved = annepro2_ble_is_active() && USB_DRIVER.state == USB_SUSPENDED;
     if (ble_state_saved) {
         ble_saved_report = *keyboard_report;
         ble_saved_mods   = get_mods();
@@ -292,7 +309,7 @@ void housekeeping_task_kb(void) {
 }
 
 void suspend_wakeup_init_kb(void) {
-    /* Not after a switch to Bluetooth in this loop: then there is no state saved for it yet. */
+    /* Not after a switch to Bluetooth in this loop, or when nothing was asleep: then there is no state saved for it. */
     if (ble_state_saved && annepro2_ble_is_active()) {
         *keyboard_report = ble_saved_report;
         set_mods(ble_saved_mods);

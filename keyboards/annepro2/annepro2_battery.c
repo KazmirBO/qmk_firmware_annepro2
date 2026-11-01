@@ -53,6 +53,16 @@ static uint8_t  history_count, history_pos;
 static bool     shown;
 static uint32_t shown_timer;
 
+/* The indicator is written one key at a time, when the LED UART has room, so that it never blocks the matrix scan
+ * (ten keys at once are 110 bytes). */
+#    define DISPLAY_KEYS 10
+#    define DISPLAY_SET_SIZE (5 + 6)   /* protocol header + row, column, colour */
+#    define DISPLAY_UNSET_SIZE (5 + 2) /* protocol header + row, column */
+static uint16_t  display_todo; /* bit i: key 1 + i of the number row still to write */
+static bool      display_set;  /* write the level, or clear the keys */
+static uint8_t   display_lit;
+static ap2_led_t display_color;
+
 void annepro2_battery_init(void) {
     CKCU->APBCFGR = (CKCU->APBCFGR & ~CKCU_APBCFGR_ADCDIV_MASK) | (AP2_ADC_CKCU_DIV_64 << AP2_ADC_CKCU_DIV_SHIFT);
     CKCU->APBCCR1 |= CKCU_APBCCR1_ADCEN;
@@ -178,13 +188,30 @@ static uint16_t history_max(void) {
 }
 
 /* The indicator uses sticky keys, so it also works with the LEDs off. */
+static void display_task(void) {
+    static const ap2_led_t off = {.p.blue = 0x10, .p.green = 0x10, .p.red = 0x10, .p.alpha = 0xff};
+    while (display_todo) {
+        if (ap2_led_tx_space() < (display_set ? DISPLAY_SET_SIZE : DISPLAY_UNSET_SIZE)) return; /* next scan */
+        const uint8_t i = __builtin_ctz(display_todo);
+        if (display_set) {
+            ap2_led_sticky_set_key(0, 1 + i, i < display_lit ? display_color : off);
+        } else {
+            ap2_led_unset_sticky_key(0, 1 + i);
+        }
+        display_todo &= ~(1u << i);
+    }
+}
+
 static void hide_display(void) {
-    for (uint8_t col = 1; col <= 10; col++) ap2_led_unset_sticky_key(0, col);
-    shown = false;
+    display_set  = false;
+    display_todo = (1u << DISPLAY_KEYS) - 1;
+    shown        = false;
+    display_task();
 }
 
 static void show_display(void) {
-    /* The same filtered level as sent to the host; a fresh reading only while there is none yet. */
+    /* The filtered level sent to the host. Until the history is full and the first level went out (some 8 s after the
+     * BLE MCU is ready) it is the highest reading so far, and a fresh reading while there is none. */
     uint16_t level = history_max();
     if (history_count == 0) {
         uint16_t raw;
@@ -192,18 +219,19 @@ static void show_display(void) {
         level = annepro2_battery_scaled(raw);
     }
     const uint8_t percent = annepro2_battery_percent(level);
-    const uint8_t lit     = (percent + 5) / 10; /* keys 1..0, one key per 10 % */
-    ap2_led_t     color   = {.p.blue = 0x00, .p.green = 0xff, .p.red = 0x00, .p.alpha = 0xff};
+    display_lit           = (percent + 5) / 10; /* keys 1..0, one key per 10 % */
+    display_color         = (ap2_led_t){.p.blue = 0x00, .p.green = 0xff, .p.red = 0x00, .p.alpha = 0xff};
     if (percent < 20) {
-        color.p.green = 0x00;
-        color.p.red   = 0xff;
+        display_color.p.green = 0x00;
+        display_color.p.red   = 0xff;
     } else if (percent < 50) {
-        color.p.red = 0xff;
+        display_color.p.red = 0xff;
     }
-    const ap2_led_t off = {.p.blue = 0x10, .p.green = 0x10, .p.red = 0x10, .p.alpha = 0xff};
-    for (uint8_t i = 0; i < 10; i++) ap2_led_sticky_set_key(0, 1 + i, i < lit ? color : off);
-    shown       = true;
-    shown_timer = timer_read32();
+    display_set  = true;
+    display_todo = (1u << DISPLAY_KEYS) - 1;
+    shown        = true;
+    shown_timer  = timer_read32();
+    display_task();
 }
 
 void annepro2_battery_toggle_display(void) {
@@ -218,6 +246,7 @@ void annepro2_battery_request_send(void) { send_now = true; }
 
 void annepro2_battery_task(void) {
     if (shown && timer_elapsed32(shown_timer) >= AP2_BATTERY_SHOW_MS) hide_display();
+    display_task();
 
     if (!annepro2_ble_is_ready()) return;
     const uint32_t interval = history_count < AP2_BATTERY_HISTORY ? AP2_BATTERY_FILL_MS : AP2_BATTERY_INTERVAL_MS;
