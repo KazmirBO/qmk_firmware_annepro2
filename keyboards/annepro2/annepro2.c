@@ -206,6 +206,7 @@ static void led_sync(bool force) {
     if (!force && on == led_mcu_on) return;
     led_mcu_on = on;
     led_mcu_power(on);
+    if (on) ap2_rgb_resend_all(); /* only changed rows are sent, so make sure the LED MCU has every colour */
 }
 #endif
 
@@ -478,6 +479,7 @@ void matrix_scan_kb(void) {
     usb_suspend_task();
 #ifdef RGB_MATRIX_ENABLE
     led_sync(false);
+    ap2_rgb_flush_pending();
 #endif
 
     /* While there's data from LED keyboard sent - read it. */

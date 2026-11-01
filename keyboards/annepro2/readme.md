@@ -36,6 +36,8 @@ After a disconnect the Bluetooth MCU does not advertise on its own: the next key
 
 The keyboard builds with `NO_USB_STARTUP_CHECK`, so a sleeping USB host (for example one that only charges the keyboard) no longer stops typing over Bluetooth. While the keystrokes go to USB and the host sleeps, the keyboard powers down as before (LEDs off with `RGB_MATRIX_SLEEP`) and a new key press wakes the host if it allows remote wakeup; as in QMK, that key does nothing else. A USB host that wakes up while the keystrokes go to Bluetooth no longer drops the keys and modifiers held on Bluetooth.
 
+With `RGB_MATRIX_ENABLE` the driver sends a row to the LED MCU only when its colours change, and only when the whole message fits in the LED UART queue, keeping `AP2_LED_TX_RESERVE` (16) bytes free for short commands; the other rows follow as the UART frees up. The matrix scan therefore never waits for the LED UART. A static effect sends nothing after its first frame, and an animated one is limited by the 115200 baud link (about 8 updates of each row per second).
+
 For a Caps Lock indicator use `leds.caps_lock` in `led_update_user()`: on Bluetooth it carries the state of the Bluetooth host. The `ble_capslock` variable is no longer exported.
 
 ## Installing

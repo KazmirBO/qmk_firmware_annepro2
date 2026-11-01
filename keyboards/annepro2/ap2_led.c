@@ -117,6 +117,13 @@ void ap2_led_colors_set_mono(const ap2_led_t color) {
     proto_tx(CMD_LED_COLOR_SET_MONO, (uint8_t *)&color, sizeof(color), 1);
 }
 
+uint16_t ap2_led_tx_space(void) {
+    osalSysLock();
+    const uint16_t space = oqGetEmptyI(&PROTOCOL_SD.oqueue);
+    osalSysUnlock();
+    return space;
+}
+
 void ap2_led_set_manual_control(uint8_t manual) {
     uint8_t payload[] = {manual};
     proto_tx(CMD_LED_SET_MANUAL, payload, sizeof(payload), 1);
@@ -174,7 +181,7 @@ void ap2_led_unset_sticky_all(void) {
 /* Forward a keypress to the Shine MCU for reactive lighting.
  * Row [0,4] is packed into bits [6:4] and col [0,13] into bits [3:0]
  * of a single payload byte. The command byte (CMD_LED_KEY_DOWN) identifies
- * this as a keypress — no high-bit flag needed in the payload. */
+ * this as a keypress - no high-bit flag needed in the payload. */
 void ap2_led_forward_keypress(uint8_t row, uint8_t col) {
     const uint8_t payload = row << 4 | col;
     proto_tx(CMD_LED_KEY_DOWN, &payload, 1, 1);
