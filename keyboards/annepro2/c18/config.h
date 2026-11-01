@@ -28,6 +28,13 @@
 // The battery is measured by ADC channel 7 on PA7 (known for the C18 only).
 #define AP2_HAS_BATTERY_ADC
 
+// The Bluetooth switch on the bottom of the keyboard is read on PC10, a pin the 48-pin MCU of the C15 does not have.
+#define AP2_HAS_BT_SWITCH
+
+// The stock firmware keeps its device record in flash at 0x3E00, below the application area that flashing replaces;
+// the 16-byte UDID is at +8 (known for the C18 only).
+#define AP2_DEVICE_RECORD_ADDR 0x3E00
+
 // Obins stock firmware has something similar to this already enabled, but disabled by default in QMK
 #define PERMISSIVE_HOLD
 

@@ -42,13 +42,12 @@ static host_driver_t ap2_ble_driver = {
  * BLE MCU packet format (UART on SD1):
  *
  *   [0x7b]       sync start
- *   [type]       0x12 single frame, 0x10 frame with a fragment counter (bootload)
+ *   [type]       0x12 single frame, 0x10 frame with a fragment counter (group 0x02, as in the stock firmware)
  *   [routing]    (target << 4) | source  =  0x53 = McuBle(5):McuMain(3)
- *   [seq]        sequence byte, 0x00 here (bootload uses 0x10: one fragment, index 0)
+ *   [seq]        0x00 for type 0x12; 0x10 for type 0x10 (one fragment, index 0)
  *   [len lo]     length, little-endian: 2 (l2_cmd, cmd) + data bytes
  *   [len hi]
- *   [0x00]       zero in the stock firmware; the QMK wakeup has always sent 0x01,
- *                and the BLE MCU does not check this byte
+ *   [0x00]       always zero; the BLE MCU does not check this byte
  *   [0x7d]       sync end
  *   [l2_cmd]     layer-2 command group: 0x01=GLOBAL, 0x02=FW, 0x10=KEYBOARD, 0x40=BLE
  *   [cmd]        specific command within group
@@ -60,7 +59,9 @@ static host_driver_t ap2_ble_driver = {
  * (target 3 = main MCU, source 5 = BLE MCU), and are parsed in annepro2.c by length:
  *   01 03 <ver>   version, sent once after the BLE MCU starts and in reply to 01 03 02
  *   20 07 <0|1>   host Caps Lock state (BLE_STS_ID_CAPSLOCK)
- *   20 0c 00      a host connected (BLE_STS_ID_CONNECT), sent twice
+ *   20 0c 00      a host connected (BLE_STS_ID_CONNECT), sent twice; nothing is sent on a disconnect
+ *   40 01 00, 40 04 00, 40 05 00
+ *                 one-byte replies to the slot and unpair commands, ignored by the parser
  */
 
 /* Sub-commands sent to the BLE MCU. */
@@ -76,8 +77,9 @@ enum {
 #define BLE_TX_HEADER_SIZE 8
 #define BLE_TX_DATA_MAX 8
 
+/* 02 01 02 lets the BLE MCU leave its bootloader; the BLE application ignores it. Same frame as the stock firmware. */
 static const uint8_t ble_mcu_wakeup[11] = {
-    0x7b, 0x12, 0x53, 0x00, 0x03, 0x00, 0x01, 0x7d,
+    0x7b, 0x10, 0x53, 0x10, 0x03, 0x00, 0x00, 0x7d,
     0x02, 0x01, 0x02,  /* FW, IapMode, flag=normal(0x02) */
 };
 
@@ -85,6 +87,13 @@ static const uint8_t ble_mcu_bootload[11] = {
     0x7b, 0x10, 0x51, 0x10, 0x03, 0x00, 0x00, 0x7d,
     0x02, 0x01, 0x01,  /* FW, IapMode, flag=IAP(0x01) */
 };
+
+#ifdef AP2_BLE_SERIAL
+static const uint8_t ble_mcu_serial[11] = {
+    0x7b, 0x12, 0x53, 0x00, 0x23, 0x00, 0x00, 0x7d,
+    0x01, 0x10, 0x02,  /* GLOBAL, device info, id 2 (DIS Serial Number); followed by 32 characters */
+};
+#endif
 
 static host_driver_t *last_host_driver = NULL;
 #ifdef NKRO_ENABLE
@@ -126,8 +135,36 @@ void annepro2_ble_host_connected(void) {
     pair_pending = false;
 }
 
+#ifdef AP2_BLE_SERIAL
+/*
+ * Set the DIS Serial Number of the BLE MCU to the UDID of the stock device record, as 32 upper-case hex digits (the
+ * text the stock firmware uses as its USB serial number). The stock firmware sends the same text after every version
+ * report, but without the id byte, so the BLE MCU rejects it and keeps its default serial. The BLE MCU keeps the
+ * value in RAM only, so it has to be sent again after the BLE MCU restarts.
+ */
+void annepro2_ble_send_serial(void) {
+    static const char hex[] = "0123456789ABCDEF";
+    const uint8_t    *udid  = (const uint8_t *)(AP2_DEVICE_RECORD_ADDR + 8);
+    bool              blank = true, erased = true;
+    for (uint8_t i = 0; i < 16; i++) {
+        blank &= udid[i] == 0x00;
+        erased &= udid[i] == 0xff;
+    }
+    if (blank || erased) return; /* no device record */
+
+    uint8_t buf[sizeof(ble_mcu_serial) + 32];
+    memcpy(buf, ble_mcu_serial, sizeof(ble_mcu_serial));
+    for (uint8_t i = 0; i < 16; i++) {
+        buf[sizeof(ble_mcu_serial) + 2 * i]     = hex[udid[i] >> 4];
+        buf[sizeof(ble_mcu_serial) + 2 * i + 1] = hex[udid[i] & 0x0f];
+    }
+    sdWrite(&SD1, buf, sizeof(buf));
+}
+#endif
+
 /* Start advertising on a slot without the "press twice to connect" shortcut. The reports stay where they are (USB keeps
- * working while nothing has paired), as in the stock firmware; annepro2_ble_host_connected() moves them later. */
+ * working while nothing has paired), as in the stock firmware, where only its Bluetooth switch selects the output;
+ * annepro2_ble_host_connected() moves them when the new host connects and no USB host is in use. */
 void annepro2_ble_pair(uint8_t port) {
     if (port > 3) port = 3;
     ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
@@ -156,6 +193,11 @@ void annepro2_ble_connect(uint8_t port) {
     pair_pending = false;
     ap2_ble_switch_ble_driver();
 }
+
+/* Send the reports to the BLE MCU without a slot command, as the stock firmware does when its Bluetooth switch is
+ * turned on. A host that is still connected gets them at once. After a disconnect the BLE MCU does not advertise on its
+ * own; it starts advertising when the next report arrives (5 s for its bonded hosts, 60 s without bonds). */
+void annepro2_ble_use_driver(void) { ap2_ble_switch_ble_driver(); }
 
 void annepro2_ble_disconnect(void) {
     pair_pending = false;

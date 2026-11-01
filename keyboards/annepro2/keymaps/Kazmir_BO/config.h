@@ -42,11 +42,25 @@
 /* Mode after the first flash or an EEPROM reset (RGB_MATRIX_STARTUP_MODE is the old name, QMK no longer reads it). */
 #define RGB_MATRIX_DEFAULT_MODE RGB_MATRIX_SOLID_COLOR
 
-/* Bluetooth slot keys as in the stock firmware: tap connects, hold (500 ms) starts pairing. */
+/* Bluetooth slot keys as in the stock firmware: tap connects, hold starts pairing. The stock firmware waits 5 s;
+ * this keymap keeps the default AP2_BLE_SLOT_HOLD_MS of 500 ms. */
 #define AP2_BLE_SLOT_TAP_HOLD
+
+/* Follow the Bluetooth switch on the bottom of the keyboard (PC10): on selects the Bluetooth output, off the USB
+ * output. Only a change of the switch selects the output, so KC_AP2_USB and the slot keys still work in between. The
+ * C15 has no PC10, so the option stays off there. */
+#ifdef AP2_HAS_BT_SWITCH
+#    define AP2_BT_SWITCH
+#endif
 
 /* Send the battery level (ADC on PA7) to the Bluetooth MCU, so that the host can show it. The ADC is known for the
  * C18 only, so the option stays off on the C15. */
 #ifdef AP2_HAS_BATTERY_ADC
 #    define AP2_BLE_BATTERY
+#endif
+
+/* Give the Bluetooth MCU the UDID of the stock device record as its serial number. The record is known for the C18
+ * only, so the option stays off on the C15. */
+#ifdef AP2_DEVICE_RECORD_ADDR
+#    define AP2_BLE_SERIAL
 #endif
