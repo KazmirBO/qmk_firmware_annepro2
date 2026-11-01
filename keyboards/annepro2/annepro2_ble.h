@@ -23,6 +23,9 @@ void annepro2_ble_startup(void);
 void annepro2_ble_request_version(void);
 void annepro2_ble_send_battery(uint16_t raw);
 bool annepro2_ble_is_ready(void);
+bool annepro2_ble_is_active(void); /* the reports go to the BLE MCU */
+void annepro2_ble_set_capslock(bool on);
+void annepro2_ble_host_connected(void);
 uint16_t annepro2_ble_version(void);
 void annepro2_ble_broadcast(uint8_t port);
 void annepro2_ble_pair(uint8_t port);
