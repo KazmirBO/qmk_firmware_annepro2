@@ -30,7 +30,9 @@ Define these in the `config.h` of your keymap.
 
 `KC_AP2_BT_UNPAIR` deletes the bonds of all four slots, not only of the current one. Pairing a slot again replaces only the bond of that slot.
 
-The keyboard builds with `NO_USB_STARTUP_CHECK`, so a sleeping USB host (for example one that only charges the keyboard) no longer stops typing over Bluetooth. While the keystrokes go to USB and the host sleeps, the keyboard powers down as before (LEDs off with `RGB_MATRIX_SLEEP`) and a new key press wakes the host if it allows remote wakeup.
+The keyboard builds with `NO_USB_STARTUP_CHECK`, so a sleeping USB host (for example one that only charges the keyboard) no longer stops typing over Bluetooth. While the keystrokes go to USB and the host sleeps, the keyboard powers down as before (LEDs off with `RGB_MATRIX_SLEEP`) and a new key press wakes the host if it allows remote wakeup; as in QMK, that key does nothing else. A USB host that wakes up while the keystrokes go to Bluetooth no longer drops the keys and modifiers held on Bluetooth.
+
+For a Caps Lock indicator use `leds.caps_lock` in `led_update_user()`: on Bluetooth it carries the state of the Bluetooth host. The `ble_capslock` variable is no longer exported.
 
 ## Installing
 

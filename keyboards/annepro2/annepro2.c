@@ -185,6 +185,14 @@ static void ble_handshake_task(void) {
     annepro2_ble_request_version();
 }
 
+static void led_mcu_power(bool on) {
+    if (on) {
+        ap2_led_enable();
+    } else {
+        ap2_led_disable();
+    }
+}
+
 #ifdef RGB_MATRIX_ENABLE
 /* With rgb_matrix the LED MCU is on exactly when rgb_matrix is enabled. Every change of that flag (the keys below,
  * QK_RGB_MATRIX_*, the state restored from EEPROM, user code) is followed here, so the two cannot drift apart. */
@@ -194,16 +202,13 @@ static void led_sync(bool force) {
     const bool on = rgb_matrix_is_enabled();
     if (!force && on == led_mcu_on) return;
     led_mcu_on = on;
-    if (on) {
-        ap2_led_enable();
-    } else {
-        ap2_led_disable();
-    }
+    led_mcu_power(on);
 }
 #endif
 
-/* Turn the LEDs on or off: through rgb_matrix when it drives them, otherwise directly. */
-static void led_set(bool on) {
+/* Turn the LEDs on or off: through rgb_matrix when it drives them, otherwise directly. The name is not led_set, which
+ * QMK uses for the host LED state. */
+static void leds_switch(bool on) {
 #ifdef RGB_MATRIX_ENABLE
     if (on) {
         rgb_matrix_enable_noeeprom();
@@ -212,26 +217,26 @@ static void led_set(bool on) {
     }
     led_sync(true); /* a key press always resends, even if another path changed the LED MCU */
 #else
-    if (on) {
-        ap2_led_enable();
-    } else {
-        ap2_led_disable();
-    }
+    led_mcu_power(on);
 #endif
 }
 
 /*
  * The keyboard builds with NO_USB_STARTUP_CHECK (c15/c18 rules.mk). Otherwise QMK stops the whole keyboard task while
  * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. This does what that loop
- * did, but only while the reports go to USB: power down once (with RGB_MATRIX_SLEEP the LEDs go dark) and wake the
- * host with a new key press. The USB wakeup event still runs suspend_wakeup_init().
+ * did, but only while the reports go to USB: power down once (with RGB_MATRIX_SLEEP the LEDs go dark), wake the host
+ * with a new key press and, as QMK does, let that key do nothing else. The USB wakeup event still runs
+ * suspend_wakeup_init(). It runs from matrix_scan_kb(), after the scan and before the key events are processed.
  */
 #ifndef USB_GETSTATUS_REMOTE_WAKEUP_ENABLED
 #    define USB_GETSTATUS_REMOTE_WAKEUP_ENABLED (2U)
 #endif
 
+static matrix_row_t usb_sleep_keys[MATRIX_ROWS]; /* held since before the host slept: they do not wake it */
+static matrix_row_t usb_wake_keys[MATRIX_ROWS];  /* pressed while it slept: pre_process_record_kb() drops them */
+
 static void usb_suspend_task(void) {
-    static bool powered_down, key_down;
+    static bool powered_down;
     const bool  usb_asleep = USB_DRIVER.state == USB_SUSPENDED;
     if (!usb_asleep || annepro2_ble_is_active()) {
         /* Switched to Bluetooth while the USB host sleeps: undo the power down here, no USB wakeup will do it. */
@@ -239,15 +244,56 @@ static void usb_suspend_task(void) {
         powered_down = false;
         return;
     }
-    bool down = false;
-    for (uint8_t row = 0; row < MATRIX_ROWS; row++) down |= matrix_get_row(row) != 0;
     if (!powered_down) {
         powered_down = true;
-        key_down     = down; /* keys still held from before the host slept do not wake it */
+        for (uint8_t row = 0; row < MATRIX_ROWS; row++) usb_sleep_keys[row] = matrix_get_row(row);
         suspend_power_down_quantum();
     }
-    if (down && !key_down && (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED)) usbWakeupHost(&USB_DRIVER);
-    key_down = down;
+    bool pressed = false;
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        const matrix_row_t now = matrix_get_row(row);
+        usb_sleep_keys[row] &= now; /* released and pressed again: a new press */
+        const matrix_row_t new_keys = now & ~usb_sleep_keys[row] & ~usb_wake_keys[row];
+        usb_wake_keys[row] |= new_keys;
+        pressed |= new_keys != 0;
+    }
+    if (pressed && (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED)) usbWakeupHost(&USB_DRIVER);
+}
+
+bool pre_process_record_kb(uint16_t keycode, keyrecord_t *record) {
+    /* A key pressed while the USB host slept only wakes it: its press and its release are dropped, before tap-hold
+     * sees them, as keypress_is_wakeup_key() does in QMK's own suspend loop. */
+    const uint8_t row = record->event.key.row, col = record->event.key.col;
+    if (row < MATRIX_ROWS && col < MATRIX_COLS && (usb_wake_keys[row] & ((matrix_row_t)1 << col))) {
+        if (!record->event.pressed) usb_wake_keys[row] &= ~((matrix_row_t)1 << col);
+        return false;
+    }
+    return pre_process_record_user(keycode, record);
+}
+
+/* A USB host that wakes up runs suspend_wakeup_init(), which clears the held keys and mods even while the reports go to
+ * Bluetooth. The Bluetooth state at the end of each loop is kept and put back in that case, so the host on Bluetooth
+ * sees no change. */
+static report_keyboard_t ble_saved_report;
+static uint8_t           ble_saved_mods;
+static bool              ble_state_saved;
+
+void housekeeping_task_kb(void) {
+    ble_state_saved = annepro2_ble_is_active();
+    if (ble_state_saved) {
+        ble_saved_report = *keyboard_report;
+        ble_saved_mods   = get_mods();
+    }
+    housekeeping_task_user();
+}
+
+void suspend_wakeup_init_kb(void) {
+    /* Not after a switch to Bluetooth in this loop: then there is no state saved for it yet. */
+    if (ble_state_saved && annepro2_ble_is_active()) {
+        *keyboard_report = ble_saved_report;
+        set_mods(ble_saved_mods);
+    }
+    suspend_wakeup_init_user();
 }
 
 void bootloader_jump(void) {
@@ -312,7 +358,11 @@ void keyboard_post_init_kb(void) {
     /* A mode saved by a build with more effects can be past the last effect of this one, and rgb_matrix would then
      * render nothing. UINT8_MAX is rgb_matrix's own factory test mode. */
     const uint8_t mode = rgb_matrix_get_mode();
-    if (mode >= RGB_MATRIX_EFFECT_MAX && mode != UINT8_MAX) rgb_matrix_mode(RGB_MATRIX_DEFAULT_MODE);
+    if (mode >= RGB_MATRIX_EFFECT_MAX && mode != UINT8_MAX) {
+        /* Set directly: rgb_matrix_mode() does nothing while rgb_matrix is disabled. */
+        rgb_matrix_config.mode = RGB_MATRIX_DEFAULT_MODE;
+        eeconfig_force_flush_rgb_matrix();
+    }
     led_sync(true);
 #endif
 
@@ -414,23 +464,23 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_OFF:
-                led_set(false);
+                leds_switch(false);
                 return false;
 
             case KC_AP_LED_ON:
                 if (ap2_led_status.matrix_enabled) {
                     ap2_led_next_profile();
                 } else {
-                    led_set(true);
+                    leds_switch(true);
                 }
                 ap2_led_reset_foreground_color();
                 return false;
 
             case KC_AP_LED_TOG:
                 if (ap2_led_status.matrix_enabled) {
-                    led_set(false);
+                    leds_switch(false);
                 } else {
-                    led_set(true);
+                    leds_switch(true);
                     ap2_led_reset_foreground_color();
                 }
                 return false;
@@ -482,9 +532,9 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 } else if (get_mods() & MOD_MASK_CTRL) {
                     rgb_matrix_decrease_speed();
                 } else if (rgb_matrix_is_enabled()) {
-                    led_set(false);
+                    leds_switch(false);
                 } else {
-                    led_set(true);
+                    leds_switch(true);
                     ap2_led_reset_foreground_color();
                 }
                 return false;

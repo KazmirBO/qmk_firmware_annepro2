@@ -136,10 +136,12 @@ void annepro2_ble_pair(uint8_t port) {
     pair_pending = true;
 }
 
+/* Without AP2_BLE_SLOT_TAP_HOLD: the first press pairs (a new host may connect, so it resets like a pairing), a second
+ * press on the same slot connects. */
 void annepro2_ble_broadcast(uint8_t port) {
     static int8_t lastBroadcast = -1;
     if (port > 3) port = 3;
-    ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
+    annepro2_ble_pair(port);
     if (lastBroadcast == port) {
         annepro2_ble_connect(port);
     }
