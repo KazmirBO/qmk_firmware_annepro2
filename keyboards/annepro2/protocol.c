@@ -34,7 +34,7 @@ void           proto_tx(uint8_t cmd, const unsigned char *buf, int payload_size,
      * never overflow the uint8_t size field or desync the receiver's FSM. */
     if (payload_size > MAX_PAYLOAD_SIZE) payload_size = MAX_PAYLOAD_SIZE;
 
-    const uint8_t header[5] = {
+    const uint8_t header[PROTO_TX_HEADER_SIZE] = {
         0x7A, 0x1D, cmd, ++msg_id, payload_size,
     };
 

@@ -98,3 +98,6 @@ enum AP2KeyCodes {
     KC_AP_RGB_MOD,
     KC_AP2_BATT, /* shows the battery level on the number row (needs AP2_BLE_BATTERY) */
 };
+
+/* A USB host is there: active, or asleep after it had configured the keyboard and not taken as gone (annepro2.c). */
+bool annepro2_usb_host_in_use(void);

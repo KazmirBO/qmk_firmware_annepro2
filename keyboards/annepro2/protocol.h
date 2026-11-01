@@ -124,3 +124,7 @@ extern void proto_silence(protocol_t *proto);
 /* Transmit message; count controls how many times it is sent (no ACK mechanism,
  * higher count reduces risk of loss on noisy UART lines). */
 extern void proto_tx(uint8_t cmd, const unsigned char *buf, int payload_size, int count);
+
+/* Bytes that proto_tx() writes for one copy of a message: the header (sync, sync, cmd, id, size), then the payload. */
+#define PROTO_TX_HEADER_SIZE 5
+#define PROTO_TX_MESSAGE_SIZE(payload_size) (PROTO_TX_HEADER_SIZE + (payload_size))
