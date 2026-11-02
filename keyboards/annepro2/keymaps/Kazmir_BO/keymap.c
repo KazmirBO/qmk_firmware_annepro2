@@ -24,9 +24,11 @@ const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 
     /* KC_AP2_BT_UNPAIR (40 05) deletes the bonds of all four slots, so it is not bound next to the slot keys.
-     * Pairing a slot again replaces only the bond of that slot. */
+     * Pairing a slot again replaces only the bond of that slot. RM_SPDU sets the speed of the rgb_matrix effect
+     * (Shift: slower); KC_AP_LED_SPEED would only set the speed of the LED MCU's own profiles, which do not run while
+     * rgb_matrix drives the LEDs. */
     [FN2] = LAYOUT_60_ansi(
-        QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, XXXXXXX,          KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, KC_AP_LED_SPEED,
+        QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, XXXXXXX,          KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, RM_SPDU,
         _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
         _______, _______,    _______,    _______,    _______,    _______,          _______,    _______, _______, _______,       _______,       _______,       _______,
         _______,             _______,    _______,    _______,    _______,          _______,    _______, _______, _______,       _______,       _______,       _______,

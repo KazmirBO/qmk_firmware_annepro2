@@ -18,7 +18,8 @@
 
 #define RGB_MATRIX_MAXIMUM_BRIGHTNESS 255
 
-/* LEDs off while the USB host sleeps (annepro2.c powers down) and after 3 minutes without a key press. */
+/* LEDs off while the USB host sleeps (annepro2.c powers down) and after 3 minutes without a key press; the LED MCU is
+ * switched off then too. */
 #define RGB_MATRIX_SLEEP
 #define RGB_MATRIX_TIMEOUT 180000
 

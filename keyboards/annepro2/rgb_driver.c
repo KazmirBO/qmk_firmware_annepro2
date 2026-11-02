@@ -22,6 +22,7 @@
 #    include "ap2_led.h"
 #    include "protocol.h"
 #    include "timer.h"
+#    include "keyboard.h"
 
 static uint8_t led_pos[RGB_MATRIX_LED_COUNT];
 static uint8_t led_row[RGB_MATRIX_LED_COUNT];
@@ -30,9 +31,9 @@ static uint8_t led_row[RGB_MATRIX_LED_COUNT];
 static uint8_t dirty_rows = 0;
 
 /*
- * The LED UART is slower than the effects: a full frame is 5 rows of 62 bytes, about 27 ms at 115200 baud, and
- * rgb_matrix flushes every 16 ms. Writing it all at once filled the 128-byte output queue and sdWrite() then blocked
- * the matrix scan. Now:
+ * A full frame is 5 rows of 62 bytes, about 27 ms at 115200 baud, and rgb_matrix flushes at most every
+ * RGB_MATRIX_LED_FLUSH_LIMIT (40 ms on this keyboard, info.json). Writing a frame at once overfilled the 128-byte
+ * output queue, and sdWrite() then blocked the matrix scan until the UART had sent most of it. Now:
  * - set_color() marks a row only when a colour really changes, so a static effect (solid colour too, which sets every
  *   LED in every frame) sends nothing after its first frame. A row that ends a frame as it was last sent is dropped at
  *   the flush (by a hash of the row, compared with the one of the last row sent), so an indicator that paints over the
@@ -43,15 +44,10 @@ static uint8_t dirty_rows = 0;
  *   its share when the UART cannot keep up. A row that the next frame has already started to change waits for that
  *   frame's flush, so a half rendered row is never sent;
  * - the protocol has no acknowledgement, so while the LEDs are on and nothing waits one row is sent again every
- *   AP2_LED_REFRESH_MS (each row once a second by default): a lost message or a reset of the LED MCU heals even with a
- *   static effect.
+ *   AP2_LED_REFRESH_MS (each row once a second by default): a lost message heals even with a static effect. An LED
+ *   MCU that restarted is set up again by annepro2.c (led_check_task()).
  */
 #    define ROW_MESSAGE_SIZE PROTO_TX_MESSAGE_SIZE(1 + NUM_COLUMN * sizeof(ap2_led_t)) /* row number, colours */
-/* Room left for the short commands of one key press, at most ap2_led_enable() (3 copies, 15 B), a colour reset (9 B)
- * and the key itself (6 B). */
-#    ifndef AP2_LED_TX_RESERVE
-#        define AP2_LED_TX_RESERVE 32
-#    endif
 _Static_assert(SERIAL_BUFFERS_SIZE >= ROW_MESSAGE_SIZE + AP2_LED_TX_RESERVE, "the LED UART queue cannot take a row");
 
 #    ifndef AP2_LED_REFRESH_MS
@@ -77,9 +73,17 @@ static uint16_t row_hash(uint8_t row) { /* FNV-1a, folded to 16 bits */
     return (uint16_t)(h ^ (h >> 16));
 }
 
+bool ap2_rgb_lit(void) {
+    if (!rgb_matrix_is_enabled() || rgb_matrix_get_suspend_state()) return false;
+#    if RGB_MATRIX_TIMEOUT > 0
+    if (last_input_activity_elapsed() > (uint32_t)RGB_MATRIX_TIMEOUT) return false;
+#    endif
+    return true;
+}
+
 void ap2_rgb_flush_pending(void) {
-    /* With the LEDs off (the LED MCU off, or dark while the host sleeps) there is nothing to heal. */
-    if (!pending_rows && rgb_matrix_is_enabled() && !rgb_matrix_get_suspend_state() && timer_elapsed32(refresh_timer) >= AP2_LED_REFRESH_MS) {
+    /* With the LEDs dark the LED MCU is off (annepro2.c), so there is nothing to heal. */
+    if (!pending_rows && ap2_rgb_lit() && timer_elapsed32(refresh_timer) >= AP2_LED_REFRESH_MS) {
         refresh_timer = timer_read32();
         pending_rows  = 1 << refresh_row;
         refresh_row   = (refresh_row + 1) % NUM_ROW;
