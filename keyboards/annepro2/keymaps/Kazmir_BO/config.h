@@ -3,7 +3,9 @@
 #define USB_POLLING_INTERVAL_MS 1
 
 #define MATRIX_IO_DELAY 1
-#define DEBOUNCE 10
+/* A key change counts once it has been stable for 25 ms (DEBOUNCE_TYPE in rules.mk); this hides the W switch
+ * chatter, at the cost of 25 ms more latency on press and release. */
+#define DEBOUNCE 25
 
 #define TAPPING_TERM 100
 /* Caps Lock (hold = FN1) uses a longer term, see get_tapping_term in keymap.c. */

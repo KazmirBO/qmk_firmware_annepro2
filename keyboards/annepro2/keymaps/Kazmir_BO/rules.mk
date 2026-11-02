@@ -4,7 +4,8 @@ NKRO_ENABLE = yes
 LTO_ENABLE = yes
 OPT = z
 
-DEBOUNCE_TYPE = asym_eager_defer_pk
+# Defer both edges (noise-resistant): the W switch chattered with asym_eager_defer_pk, which reports a press at once.
+DEBOUNCE_TYPE = sym_defer_pk
 
 COMMAND_ENABLE = no
 CONSOLE_ENABLE = no
