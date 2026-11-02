@@ -79,6 +79,16 @@ void ap2_led_set_manual_control(uint8_t manual);
 
 /* Bytes free in the output queue of the LED UART; a message that fits is written without waiting. */
 uint16_t ap2_led_tx_space(void);
+/* Room that the long or periodic messages (rgb_matrix rows, the battery indicator, the LED MCU check) leave in that
+ * queue for the short commands, which are written at once. The longest burst is one key press that switches the LEDs
+ * on in a layer: 30 01 (6 B), LED on (3 copies, 15 B), the mask reset and the layer colour (9 B each) and the key
+ * itself (6 B), 45 B. */
+#ifndef AP2_LED_TX_RESERVE
+#    define AP2_LED_TX_RESERVE 48
+#endif
+/* rgb_matrix shows something: enabled, not dark while the USB host sleeps, not past RGB_MATRIX_TIMEOUT
+ * (rgb_driver.c). */
+bool ap2_rgb_lit(void);
 /* Send the rgb_matrix rows that did not fit in the LED UART at the last flush (rgb_driver.c); call it every scan. */
 void ap2_rgb_flush_pending(void);
 /* Send every row again at the next flush, e.g. after the LED MCU was turned on (rgb_driver.c). */

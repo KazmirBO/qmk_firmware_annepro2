@@ -197,18 +197,73 @@ static void led_mcu_power(bool on) {
 }
 
 #ifdef RGB_MATRIX_ENABLE
-/* With rgb_matrix the LED MCU is on exactly when rgb_matrix is enabled. Every change of that flag (the keys below,
- * QK_RGB_MATRIX_*, the state restored from EEPROM, user code) is followed here, so the two cannot drift apart. */
-static bool led_mcu_on;
+/* With rgb_matrix the LED MCU is on exactly when rgb_matrix shows something (ap2_rgb_lit(): enabled, not asleep with
+ * the USB host, not past RGB_MATRIX_TIMEOUT). Every change (the keys below, QK_RGB_MATRIX_*, the state restored from
+ * EEPROM, user code, a key after the timeout) is followed here, so the two cannot drift apart. */
+static bool     led_mcu_on;
+static uint16_t led_power_timer; /* the last power command; the LED timers are 16 bits, RAM is short on the C15 */
 
 static void led_sync(bool force) {
-    const bool on = rgb_matrix_is_enabled();
+    const bool on = ap2_rgb_lit();
     if (!force && on == led_mcu_on) return;
-    led_mcu_on = on;
+    led_mcu_on      = on;
+    led_power_timer = timer_read();
+    if (on) ap2_led_set_manual_control(1); /* the colours come from rgb_matrix, not from the profiles of the LED MCU */
     led_mcu_power(on);
     if (on) ap2_rgb_resend_all(); /* only changed rows are sent, so make sure the LED MCU has every colour */
 }
+
+/*
+ * The LED MCU keeps no state over a restart (a brown-out on a low battery, for example): it comes back with its matrix
+ * off, out of manual mode and without sticky keys or mask. While it should be on, 30 01 is sent every
+ * AP2_LED_CHECK_MS; the LED MCU answers it with its status, and one that reports its matrix off is set up again. A
+ * status shortly after a power command can still answer an older command and is not used. If the status still says
+ * off after a few repairs in a row, it is not trusted until it reports the matrix on again.
+ */
+#    ifndef AP2_LED_CHECK_MS
+#        define AP2_LED_CHECK_MS 1000
+#    endif
+#    define AP2_LED_STATUS_SETTLE_MS 100
+#    define AP2_LED_MAX_REPAIRS 3
+
+static uint16_t led_check_timer;
+static uint8_t  led_repairs;
+
+static void led_check_task(void) {
+    if (!led_mcu_on || timer_elapsed(led_check_timer) < AP2_LED_CHECK_MS) return;
+    if (ap2_led_tx_space() < PROTO_TX_MESSAGE_SIZE(1) + AP2_LED_TX_RESERVE) return; /* next scan */
+    led_check_timer = timer_read();
+    ap2_led_set_manual_control(1);
+}
+
+static void led_status_received(void) {
+    if (!led_mcu_on || timer_elapsed(led_power_timer) < AP2_LED_STATUS_SETTLE_MS) return;
+    if (ap2_led_status.matrix_enabled) {
+        led_repairs = 0; /* working: a later restart is repaired again */
+        return;
+    }
+    if (led_repairs >= AP2_LED_MAX_REPAIRS) return;
+    led_repairs++;
+    led_sync(true);
+    led_update_kb(host_keyboard_led_state()); /* sticky keys of the keymap, such as a Caps Lock indicator */
+    layer_state_set_kb(layer_state);         /* the layer colour of the keymap */
+}
 #endif
+
+/* LED messages from the LED MCU. */
+static void led_receive(const message_t *msg) {
+    led_command_callback(msg);
+#ifdef RGB_MATRIX_ENABLE
+    if (msg->command == CMD_LED_STATUS && msg->payload_size >= 6) led_status_received();
+#endif
+}
+
+/* The LED keys clear the mask, so that their effect shows, and then let the keymap put its layer colour back: a layer
+ * that is still held keeps its indicator. */
+static void leds_reset_foreground(void) {
+    ap2_led_reset_foreground_color();
+    if (layer_state) layer_state_set_kb(layer_state);
+}
 
 /* Turn the LEDs on or off: through rgb_matrix when it drives them, otherwise directly. The name is not led_set, which
  * QMK uses for the host LED state. */
@@ -236,6 +291,8 @@ static void leds_switch(bool on) {
  *   dark) and scans every 17 ms, as in QMK's loop;
  * - the USB peripheral cannot tell a sleeping host from an unplugged cable. If a host that should wake does not
  *   resume within AP2_USB_WAKE_TIMEOUT_MS, it is taken as gone until the bus changes state, and the power down ends.
+ *   The wakeup is still signalled for every key that presses something, and repeated while a key is held, as in QMK's
+ *   loop, so a host that missed a signal or resumes slowly can still be woken.
  * The USB wakeup event still runs suspend_wakeup_init().
  */
 #ifndef USB_GETSTATUS_REMOTE_WAKEUP_ENABLED
@@ -247,24 +304,34 @@ static void leds_switch(bool on) {
 #define AP2_USB_WAKE_RETRY_MS 500
 
 static bool     usb_gone;         /* suspended, and did not resume when asked: no host on the cable */
-static bool     usb_wake_pending; /* a report asked the sleeping host to wake */
-static uint32_t usb_wake_timer;
+static bool     usb_wake_pending; /* asked to wake and not resumed yet: the timeout runs */
+static bool     usb_keys_down;    /* the last keyboard report to USB holds a key or a modifier */
+static uint32_t usb_wake_timer;   /* the first request, the timeout runs from it */
+static uint16_t usb_wake_signal;  /* the last wakeup signal; 16 bits time the retry, RAM is short on the C15 */
 
 /* Only a host that had configured the keyboard can be asleep: the USB peripheral may also report a suspend with no
  * host at all (on battery, on a charger). */
-static bool usb_host_asleep(void) {
-    return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE && !usb_gone;
-}
+static bool usb_bus_asleep(void) { return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE; }
+
+/* Asleep and not taken as gone: the keyboard powers down for it, and it counts as in use. */
+static bool usb_host_asleep(void) { return usb_bus_asleep() && !usb_gone; }
 
 bool annepro2_usb_host_in_use(void) { return USB_DRIVER.state == USB_ACTIVE || usb_host_asleep(); }
 
-/* A report to the sleeping host: wake it if it allows that, and take it as gone if it does not resume. */
+static void usb_signal_wakeup(void) {
+    usb_wake_signal = timer_read();
+    if (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED) usbWakeupHost(&USB_DRIVER);
+}
+
+/* A report that presses something, to a bus that sleeps: signal a wakeup, at most every AP2_USB_WAKE_RETRY_MS, also
+ * when the host was taken as gone. The first request starts the timeout. */
 static void usb_report_while_asleep(void) {
-    if (!usb_wake_pending || timer_elapsed32(usb_wake_timer) >= AP2_USB_WAKE_RETRY_MS) {
-        if (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED) usbWakeupHost(&USB_DRIVER);
-        if (!usb_wake_pending) usb_wake_timer = timer_read32(); /* the timeout runs from the first request */
+    const bool first = !usb_wake_pending && !usb_gone;
+    if (first) {
         usb_wake_pending = true;
+        usb_wake_timer   = timer_read32();
     }
+    if (first || timer_elapsed(usb_wake_signal) >= AP2_USB_WAKE_RETRY_MS) usb_signal_wakeup();
 }
 
 /* QMK's USB host driver (tmk_core/protocol/chibios/chibios.c) and its senders (usb_main.c). */
@@ -282,22 +349,24 @@ static bool usb_report_pressed(const uint8_t *data, uint8_t n) {
 }
 
 static void usb_proxy_keyboard(report_keyboard_t *report) {
-    if (usb_host_asleep() && usb_report_pressed(&report->mods, 8)) usb_report_while_asleep();
+    usb_keys_down = usb_report_pressed(&report->mods, 8);
+    if (usb_keys_down && usb_bus_asleep()) usb_report_while_asleep();
     send_keyboard(report);
 }
 
 static void usb_proxy_nkro(report_nkro_t *report) {
-    if (usb_host_asleep() && (report->mods || usb_report_pressed(report->bits, sizeof(report->bits)))) usb_report_while_asleep();
+    usb_keys_down = report->mods || usb_report_pressed(report->bits, sizeof(report->bits));
+    if (usb_keys_down && usb_bus_asleep()) usb_report_while_asleep();
     send_nkro(report);
 }
 
 static void usb_proxy_mouse(report_mouse_t *report) {
-    if (usb_host_asleep() && (report->buttons || report->x || report->y || report->v || report->h)) usb_report_while_asleep();
+    if (usb_bus_asleep() && (report->buttons || report->x || report->y || report->v || report->h)) usb_report_while_asleep();
     send_mouse(report);
 }
 
 static void usb_proxy_extra(report_extra_t *report) {
-    if (usb_host_asleep() && report->usage) usb_report_while_asleep();
+    if (usb_bus_asleep() && report->usage) usb_report_while_asleep();
     send_extra(report);
 }
 
@@ -319,6 +388,8 @@ static void usb_suspend_task(void) {
         usb_gone         = true;
         usb_wake_pending = false;
     }
+    /* A key held since a request is signalled again, as QMK's loop does while a key is down. */
+    if (usb_keys_down && (usb_wake_pending || usb_gone) && usb_bus_asleep() && timer_elapsed(usb_wake_signal) >= AP2_USB_WAKE_RETRY_MS) usb_signal_wakeup();
     if (!usb_host_asleep() || annepro2_ble_is_active()) {
         /* Switched to Bluetooth, or no host after all: undo the power down here, no USB wakeup will do it. */
         if (powered_down && USB_DRIVER.state == USB_SUSPENDED) suspend_wakeup_init_quantum();
@@ -391,7 +462,7 @@ void keyboard_pre_init_kb(void) {
     // wait to receive response from wakeup
     wait_ms(15);
 
-    proto_init(&proto, led_command_callback);
+    proto_init(&proto, led_receive);
 
     // loop to clear out receive buffer from shine wakeup
     while (!sdGetWouldBlock(&SD0)) sdGet(&SD0);
@@ -424,7 +495,6 @@ void keyboard_post_init_kb(void) {
     ble_ping_count = 1;
 
 #ifdef RGB_MATRIX_ENABLE
-    ap2_led_set_manual_control(1);
     /* A mode saved by a build with more effects can be past the last effect of this one, and rgb_matrix would then
      * render nothing. UINT8_MAX is rgb_matrix's own factory test mode. */
     const uint8_t mode = rgb_matrix_get_mode();
@@ -525,6 +595,28 @@ static void bt_switch_task(void) {
 }
 #endif /* AP2_BT_SWITCH */
 
+/*
+ * With no USB host to serve, no key for AP2_IDLE_AFTER_MS and the LEDs dark, the keyboard scans every AP2_IDLE_SCAN_MS
+ * and the MCU sleeps in between (ChibiOS idles with WFI) instead of scanning flat out on the battery. The first key
+ * after the pause is seen at most AP2_IDLE_SCAN_MS late; 0 turns this off.
+ */
+#ifndef AP2_IDLE_SCAN_MS
+#    define AP2_IDLE_SCAN_MS 10
+#endif
+#ifndef AP2_IDLE_AFTER_MS
+#    define AP2_IDLE_AFTER_MS 10000
+#endif
+
+static void idle_task(void) {
+#if AP2_IDLE_SCAN_MS > 0
+    if (annepro2_usb_host_in_use() || last_input_activity_elapsed() < AP2_IDLE_AFTER_MS) return;
+#    ifdef RGB_MATRIX_ENABLE
+    if (ap2_rgb_lit()) return; /* a lit effect keeps its frame rate */
+#    endif
+    wait_ms(AP2_IDLE_SCAN_MS);
+#endif
+}
+
 void matrix_scan_kb(void) {
     ble_poll();
     ble_handshake_task();
@@ -538,8 +630,10 @@ void matrix_scan_kb(void) {
     usb_suspend_task();
 #ifdef RGB_MATRIX_ENABLE
     led_sync(false);
+    led_check_task();
     ap2_rgb_flush_pending();
 #endif
+    idle_task();
 
     /* While there's data from LED keyboard sent - read it. */
     msg_t c;
@@ -592,7 +686,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 } else {
                     leds_switch(true);
                 }
-                ap2_led_reset_foreground_color();
+                leds_reset_foreground();
                 return false;
 
             case KC_AP_LED_TOG:
@@ -600,28 +694,28 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                     leds_switch(false);
                 } else {
                     leds_switch(true);
-                    ap2_led_reset_foreground_color();
+                    leds_reset_foreground();
                 }
                 return false;
 
             case KC_AP_LED_NEXT_PROFILE:
                 ap2_led_next_profile();
-                ap2_led_reset_foreground_color();
+                leds_reset_foreground();
                 return false;
 
             case KC_AP_LED_PREV_PROFILE:
                 ap2_led_prev_profile();
-                ap2_led_reset_foreground_color();
+                leds_reset_foreground();
                 return false;
 
             case KC_AP_LED_NEXT_INTENSITY:
                 ap2_led_next_intensity();
-                ap2_led_reset_foreground_color();
+                leds_reset_foreground();
                 return false;
 
             case KC_AP_LED_SPEED:
                 ap2_led_next_animation_speed();
-                ap2_led_reset_foreground_color();
+                leds_reset_foreground();
                 return false;
 #ifdef RGB_MATRIX_ENABLE
             /* QK_RGB_MATRIX_TOGGLE and the other rgb_matrix keys need nothing here: led_sync() follows them. */
@@ -654,7 +748,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                     leds_switch(false);
                 } else {
                     leds_switch(true);
-                    ap2_led_reset_foreground_color();
+                    leds_reset_foreground();
                 }
                 return false;
 
