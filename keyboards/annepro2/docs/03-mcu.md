@@ -82,6 +82,24 @@ Nazwy z ObinsKit 1.2.11, działanie w MCU 2.36 [O]:
 | 0xF7 | `KC_QUICKNUM` | brak obsługi |
 | 0xF8-0xFE | `KC_MS_BTN1`-`3`, `KC_MS_XY_*` | przyciski i ruch myszy wirtualnej |
 
+### 6.1. Mapa klawiszy i mapa fabryczna
+
+- Deskryptor mapy w danych RW (`0x2000017c`, wskaźnik ustawia `0x92b4`): liczba klawiszy 61 (0x3d), typ układu 0, bufor map w RAM `0x20000bec`, tablica pozycji `0xf2a4` [O]. Bufor ma 5 warstw po 61 B [O].
+- Tablica `0xf2a4` (5 × 14 B) przypisuje pozycji macierzy indeks klawisza 0-60. Pozycje bez klawisza to wiersz 2 kolumna 13, wiersz 3 kolumny 1 i 13 oraz wiersz 4 kolumny 1, 4, 5, 7, 8 i 13, dokładnie jak w `LAYOUT_60_ansi` portu QMK (`info.json`) [O]. Dolny rząd: LCtrl 0, LGui 2, LAlt 3, spacja 6, RAlt 9, FN1 10, FN2 11, RCtrl 12 [O].
+- Wybór mapy (`0x80aa`, wołane m.in. przez `10 06`): gdy bajt `0x2000115c` (`writeKbdLayout`, `10 06`) jest różny od 0, MCU czyta 5 warstw z SPI (`0x7d40`, §9) i zamienia bajty 0xFF na 0; gdy wynosi 0, kopiuje mapę fabryczną z flash (`0xcb78`) [O]. `10 06` przełącza więc między mapą użytkownika z ObinsKit a mapą fabryczną.
+- Mapa fabryczna ANSI leży pod `0xcbac` (5 × 61 B), obok tablica ISO pod `0xcce0` (5 × 62 B, z Enter w rzędzie Q, kodami 0x32 i 0x64). `0xcb78` wybiera ISO tylko przy typie układu 1, a w kodzie nie ma zapisu do tego bajtu deskryptora, więc MCU 2.36 zawsze używa mapy ANSI [O co do braku zapisu]. W tablicy ISO warstwa 4 jest pusta i brakuje myszy na IJKL [O].
+- Warstwy mapy ANSI (kody bez działania pominięte; nazwy kodów z §6) [O]:
+
+| Warstwa | Zawartość |
+|---|---|
+| 0 | standardowy układ ANSI 60 %; dolny rząd: LCtrl, LGui, LAlt, spacja, RAlt, FN1, FN2, RCtrl |
+| 1 (FN1) | rząd cyfr: `` ` ``, F1-F12; W, A, S, D: strzałki; P: PrtSc; `[`: Home; `]`: End; `;`: PgUp; `'`: PgDn; `.`: Ins; `/`: Del |
+| 2 (FN2) | 1-4: sloty BLE (0xC8-0xCB); 5: tryb kierownicy (0xCF); 8: wskaźnik baterii; 9: następny efekt; 0: podświetlenie wł./wył.; `-` i `=`: jasność w dół i w górę; I, J, K, L: ruch myszy wirtualnej (0xFB, 0xFD, 0xFC, 0xFE); strzałki, PrtSc, Home, End, PgUp, PgDn, Ins i Del jak w warstwie 1 |
+| 3 | RShift: strzałka w górę; FN1, FN2, RCtrl: strzałki w lewo, w dół, w prawo |
+| 4 | przyciski gamepada: Tab 0xD0 i `\` 0xD1 (osie), Q 0xD2, W 0xD3, A 0xD4, S 0xD5, Z 0xD6, X 0xD7, `]` 0xD8, `[` 0xD9, `'` 0xDA, `;` 0xDB, `/` 0xDC, `.` 0xDD |
+
+Kiedy MCU włącza warstwy 3 i 4, nie ustalono; zawartość wskazuje na tryb strzałek w prawym dolnym rogu (w ObinsKit „Magic FN” albo „Tap”) i na tryb kierownicy (§11) [I].
+
 ## 7. Zasilanie i sen
 
 - Licznik bezczynności (`0x6cfe`, wołany z SysTick, gdy nie ma zdarzeń) rośnie tylko, gdy jednocześnie: nie ma USB (tryb 0), flaga `0x20001163` = 1 (ustawiana `20 0d`, w ObinsKit przełącznik „Auto Sleep”, `writeLightHoldOn`), LED i BLE są w stanie 2, wskaźnik baterii jest wyłączony i żaden proces nie zgłasza aktywności. W przeciwnym razie licznik jest zerowany [O].
@@ -90,14 +108,14 @@ Nazwy z ObinsKit 1.2.11, działanie w MCU 2.36 [O]:
 - Wybudzenie (`0xe988`): linia EXTI (wiersze macierzy, PC0, PC10, PA6) daje zwykłe wybudzenie i powrót do pracy. Dopasowanie RTC, czyli upływ limitu snu, publikuje zdarzenie [2]: MCU wysyła do BLE `11 01` (`0x6dde`, jedyne wywołanie z `0x71c2`) i ustawia tryb długiego snu (`0x200011a7` = 1) [O].
 - W trybie długiego snu kolejne uśpienie nie uzbraja RTC, ustawia PC3 = 1 i przełącza PA4 (TX do BLE) na GPIO w stanie wysokim (`0xb5de`). Wybudzenie klawiszem ustawia PA4 nisko, przywraca USART i kasuje tryb (`0xb616`) [O]. Co to robi z układem BLE, nie wiadomo [N].
 - Przerwanie LVD (`0xee78`, `0x83d2`) ustawia PC3 = 1, gasi podświetlenie i zapisuje konfigurację [O].
-- Rola PC3: kod nie wiąże go z macierzą, a warunki ustawiania wskazują na zasilanie lub uśpienie układu LED [I].
+- Rola PC3: kod nie wiąże go z macierzą. Układ LED przy stanie wysokim na swoim PB12 wyłącza matrycę i zasypia (`04-led.md` §8), a MCU ustawia PC3 = 1 dokładnie wtedy, gdy LED nie ma nic do pokazania, więc PC3 to najpewniej linia uśpienia układu LED [I; potwierdzi schemat C18 albo pomiar].
 
 ## 8. Bateria
 
 - Pomiar: ADC kanał 7 na PA7 (funkcja AFIO 2), zegar ADC z dzielnikiem APBCFGR.ADCDIV = 6 (`HCLK/64` [I]), wyzwalanie programowe, 12 bitów; rejestry `0x40010000` + 0x000, 0x004, 0x030, 0x070, 0x074, 0x080, 0x088, 0x08C [O].
 - Przerwanie ADC (`0xed0c`) kopiuje próbki, `0x959a` zbiera 8 próbek i liczy średnią bez najmniejszej i największej: (suma - min - max) / 6, zapisaną pod `0x2000118d` [O].
 - Pomiar startuje przy starcie, co 60 000 ticków (10 min), po `KC_BL_BATT`, po `01 05` i po `80 01` [O].
-- `0x94b2` przelicza wynik na napięcie `U = ADC * 3,1 * 2,02 / 4095` (arytmetyka double, 2,02 jako float; rozpoznanie funkcji mnożenia i dzielenia [I]) i na procent progami `U >= próg`: 4,1 V 100; 4,0 V 90; 3,9 V 80; 3,8 V 70; 3,75 V 60; 3,7 V 50; 3,65 V 40; 3,6 V 30; 3,5 V 20; 3,4 V 10; poniżej 0 (schodki, bez interpolacji) [O].
+- `0x94b2` przelicza wynik na napięcie `U = ADC * 3,1 * 2,02 / 4095` (arytmetyka double, 2,02 jako float; mnożenie `0xd950` i dzielenie `0xdad4` rozpoznane po kontekście, §11 [I]) i na procent progami `U >= próg`: 4,1 V 100; 4,0 V 90; 3,9 V 80; 3,8 V 70; 3,75 V 60; 3,7 V 50; 3,65 V 40; 3,6 V 30; 3,5 V 20; 3,4 V 10; poniżej 0 (schodki, bez interpolacji) [O].
 - Procent idzie do LED (`20 0f <procent>`) tylko po `KC_BL_BATT` (flaga `0x2000119a`). Ponowne `KC_BL_BATT` przy włączonym wskaźniku wysyła `20 0f 00` i go gasi [O].
 - Do BLE MCU nie wysyła ani pomiaru (`01 05`), ani procentu [O]. Układ BLE startuje z poziomem 100 % i bez `01 05` go nie zmienia, więc host połączony z oryginałem widzi stałe 100 % [I, `05-ble.md` §9].
 
@@ -105,7 +123,7 @@ Nazwy z ObinsKit 1.2.11, działanie w MCU 2.36 [O]:
 
 - SPI1 z CS na PA3; identyfikacja poleceniem `0x9F` (`0xdc1c`) [O].
 - Tablica identyfikatorów JEDEC (`0x2000064c`) ma 15 wpisów (Winbond, Macronix, SST, GigaDevice, Boya), z czego 14 różnych (0x684015 dwa razy) [O].
-- Mapa: konfiguracja 0x0000 (`0x7dba` zapisuje też sektor 0x4000), mapy klawiszy 0x1000-0x13FF (0x100 na warstwę), dziennik czasu pracy 0xA000 i 0xB000, makra od 0x10000 (0x1000 na makro), efekty użytkownika od 0x20000 (0x1000 na efekt, `0x75a8`) [O].
+- Mapa: konfiguracja 0x0000 (`0x7dba` zapisuje też sektor 0x4000), mapy klawiszy 0x1000-0x13FF (0x100 na warstwę, warstwy 0-3; `10 01` zapisuje tylko je) i 0x2000 (warstwa 4, czytana w `0x7d40`, ale bez zapisu w kodzie) [O], dziennik czasu pracy 0xA000 i 0xB000, makra od 0x10000 (0x1000 na makro), efekty użytkownika od 0x20000 (0x1000 na efekt, `0x75a8`) [O].
 - Bez rozpoznanej pamięci flaga `0x200011ae` = 0, a zapisy konfiguracji, map i makr są odrzucane [O].
 
 ## 10. USB
@@ -122,8 +140,9 @@ Nazwy z ObinsKit 1.2.11, działanie w MCU 2.36 [O]:
 
 - Czujnik: LIS3DH na I2C1 (PB7/PB8), adres 0x19; `WHO_AM_I` (rejestr 0x0F) musi dać 0x33 albo 0x19, inaczej flaga obecności `0x200011af` = 0 i funkcje czujnika są wyłączone [O]. Czy czujnik jest obsadzony na płytkach C18, nie wiadomo [N].
 - Inicjalizacja: ODR 100 Hz, ±2 g, osie XYZ, bit HR. Opcjonalna konfiguracja wykrywania stuknięć (0x38 = 0x2A, 0x3B = 120, 0x3C = 200), ale wyniku stuknięć nic nie odczytuje [O].
-- Tryb kierownicy (`KC_FN_WHEEL`, „Game wheel”): włącza się tylko przy wyjściu USB i podłączonym USB; LED dostaje `20 12 01` (przy wyłączeniu `20 12 00`). Co tick proces liczy kąt przechyłu (funkcja rozpoznana jako `atan2` [I], przeliczenie na stopnie) i wpisuje go jako oś Ry raportu gamepada (IF3, EP 0x86). Klawisze 0xD0-0xDF służą jako pedały i przyciski [O].
-- Poza USB proces co 2 ticki wysyła do BLE `50 07` z 5 B spod `0x200002c4`, którą BLE 2.05 ignoruje; zapisu pod ten adres nie znaleziono, więc to, że to dane gamepada, jest tylko przypuszczeniem [N]. Kierownica działa więc tylko po USB [O].
+- Tryb kierownicy (`KC_FN_WHEEL`, „Game wheel”): włącza się tylko przy wyjściu USB i podłączonym USB; LED dostaje `20 12 01` (przy wyłączeniu `20 12 00`). Co tick proces liczy kąt przechyłu i wpisuje go jako oś Ry raportu gamepada (IF3, EP 0x86). Klawisze 0xD0-0xDF służą jako pedały i przyciski [O].
+- Kąty (`0x8d40`-`0x8dee`): trzy pary osi (starsze 12 bitów) zamienione na double (`0xd80c`) trafiają do `0xd820`, wynik jest mnożony przez 180,0 (`0xd950`) i dzielony przez stałą 3,1416 (double, `0x8eec`; `0xdad4`), a potem zamieniany na liczbę całkowitą (`0xdb98`) [O]. `0xd820` dzieli argumenty (`0xdad4`) i woła `0xe560`, które korzysta ze stałych π/4, π/2 i π pod `0xe72c`-`0xe7bc` i wielokrotnie z `0xd950` i `0xe7c8` w obliczaniu wielomianu. Stąd rozpoznanie: `0xd820` to `atan2`, `0xe560` to `atan`, `0xd950` mnożenie, `0xdad4` dzielenie double [I mocne; nazw biblioteki Keil nie porównywano].
+- Poza USB proces co 2 ticki wysyła do BLE `50 07` z 5 B spod `0x200002c4`, którą BLE 2.05 ignoruje. Pod `0x200002c4`-`0x200002c7` nic w kodzie nie pisze (dane RW mają tam zera), a piąty bajt to pierwszy bajt bufora odbiorczego procesu AT (`0x200002c8`, po odebraniu ramki 0x7B). Ramka niesie więc zawsze `00 00 00 00` i jeden bajt z innego bufora, a nie dane gamepada [O]. Kierownica działa tylko po USB [O].
 - Efekt poziomicy (nr 26): gdy LED zgłosi tryb 0x1a, MCU wysyła `20 16 <x> <y> <z>` (starsze bajty osi). Cyklicznie, co 10 ticków, robi to tylko wtedy, gdy zapamiętany tryb (`0x20001164`) też wynosi 0x1a; zmiana efektu zlecona z komputera (`20 03 ff 1a`) tego bajtu nie ustawia, więc daje jedną ramkę [O]. LED zamienia oś Y na kolumnę 0-13 (`04-led.md` §5) [O]. ObinsKit 1.2.11 nie ma tego efektu na liście.
 
 ## 12. Rekord urządzenia i UDID
@@ -163,3 +182,7 @@ Nazwy z ObinsKit 1.2.11, działanie w MCU 2.36 [O]:
 | `0xb1b8`, `0xe0c0` | konfiguracja pinów, ustawienie funkcji AFIO |
 | `0x8c44`, `0x8bbc` | proces akcelerometru, sonda `WHO_AM_I` |
 | `0xcaee` | procedura SysTick |
+| `0x2000017c`, `0x80aa`, `0x7d40`, `0xcb78` | deskryptor mapy, wybór mapy, mapa z SPI, mapa fabryczna |
+| `0xcbac`, `0xcce0`, `0xf2a4` | mapa fabryczna ANSI i ISO, pozycje klawiszy w macierzy |
+| `0xd80c`, `0xd820`, `0xd950`, `0xdad4`, `0xdb98`, `0xe560` | int na double, `atan2`, mnożenie, dzielenie, double na int, `atan` |
+| `0xb734` | martwe ramki `40 07` (`02-protokol.md` §2) |

@@ -2,7 +2,7 @@
 
 *English summary.* These notes (in Polish) describe how the Anne Pro 2 C18 works, from static analysis of the stock firmware of the main MCU (Holtek HT32F52352, Contiki OS), the LED MCU and the Bluetooth MCU (TI CC2540/CC2541, 8051, TI BLE stack), and of ObinsKit 1.2.11, done with Ghidra 12.1.4 in headless mode through Claude Code. They cover the frame format shared by the three processors, USB and the BLE vendor report, the commands of all three processors and of the bootloader, the pairing slots, the output selection by the Bluetooth switch on PC10, the BLE chip internals (GATT, HID report map, bonding, advertising, battery service), sleep, the battery curves, the USB descriptors, the hidden "Game wheel" mode and the ObinsKit update procedure, and how the QMK changes in this fork relate to the stock firmware. On 2026-10-27 every claim was checked again against the images (896 claims, 97 corrected, 23 refuted; `09-metoda-i-weryfikacja.md`). Claims are marked **[O]** observed, **[I]** inferred, **[N]** unknown.
 
-Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6).
+Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6). Uzupełnienie z 2026-11-03 (mapa fabryczna MCU, matryca, wskaźniki i uśpienie LED, suma kontrolna obrazu BLE i kilka rozstrzygniętych niewiadomych) opisuje `09-metoda-i-weryfikacja.md` §8.
 
 ## 1. Źródła
 
@@ -16,6 +16,7 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 - ObinsKit 1.2.11 dla Linuksa: archiwum `ObinsKit_1.2.11_x64.tar.gz` (SHA-256 `2a10aed5…096cd`), szczegóły w `06-obinskit-i-bootloader.md` §1.
 - Schemat: `AnnePro2Schematics.PDF` z `OpenAnnePro/AnnePro2-Hardware`; rysuje wariant 48-pinowy, więc dla C18 nie jest autorytatywny (`01-architektura.md` §7).
 - Port QMK: katalog `keyboards/annepro2/` tego forka (`07-port-qmk-i-narzedzia.md`).
+- Do porównania pinów matrycy LED: otwarty firmware LED `annepro2-shine` (commit `0bcaf1c`, wariant C18; `04-led.md` §7).
 
 ## 2. Znaczniki i konwencje
 
@@ -40,7 +41,9 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 8. **Sen:** po około 1 s bezczynności (bez USB, z włączonym „Auto Sleep”) MCU przechodzi w DeepSleep; po upływie limitu snu RTC budzi go do długiego snu i dopiero wtedy wysyła do BLE `11 01` (`03-mcu.md` §7).
 9. **System:** MCU i LED działają na Contiki OS z tickiem 10 ms, BLE na OSAL i stosie TI BLE w kodzie bankowanym IAR (`01-architektura.md` §4).
 10. **Funkcje ukryte i martwe:** tryb kierownicy „Game wheel” (akcelerometr LIS3DH jako gamepad USB), efekty podświetlenia 22, 26 (poziomica) i 27 nieobecne w ObinsKit, kody 0xA5-0xA7 bez działania, mysz wirtualna ignorowana przez BLE, wizualizacja dźwięku bez obsługi w LED (`03-mcu.md` §6, `03-mcu.md` §11, `04-led.md` §4, `05-ble.md` §4.3).
-11. **Uwagi o bezpieczeństwie:** odczyt raportu wyjściowego ID 2 po BLE zwraca 15 B niezapisanej pamięci, `40 13` i `40 31` zwracają bajty stosu, a przez UART można zmienić adres BD i skasować bondy (`05-ble.md` §13).
+11. **Mapa fabryczna:** MCU ma we flash pięć warstw ANSI (baza, FN1, FN2 ze slotami BLE, podświetleniem i myszą na IJKL, warstwa strzałek i warstwa gamepada); `10 06` przełącza między nią a mapą z SPI, a tablica ISO jest w obrazie, ale nieużywana (`03-mcu.md` §6.1).
+12. **LED:** piny matrycy 5 × 14 RGB są te same co w wariancie C18 `annepro2-shine`; wskaźniki slotu, Caps Lock, kierownicy i baterii (klawisze 1-0 jako pasek co 10 %) mają ustaloną kolejność i zatrzymują efekt; `20 1f` wybiera tabelę jasności 0-15 albo 0-36; układ LED zasypia na sygnał z PB12, najpewniej z PC3 w MCU (`04-led.md` §6-8).
+13. **Uwagi o bezpieczeństwie:** odczyt raportu wyjściowego ID 2 po BLE zwraca 15 B niezapisanej pamięci, `40 13` i `40 31` zwracają bajty stosu, a przez UART można zmienić adres BD i skasować bondy (`05-ble.md` §13).
 
 ## 4. Pliki
 
@@ -48,8 +51,8 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 |---|---|
 | `01-architektura.md` | procesory, łącza, podział odpowiedzialności, system, pamięć, piny MCU, schemat |
 | `02-protokol.md` | format ramki, węzły i routing, fragmentacja, kanał przez BLE, polecenia wszystkich odbiorców, ruch wysyłany samodzielnie |
-| `03-mcu.md` | MCU 2.36: procesy, czas, handshake, wybór wyjścia, sloty, kody klawiszy, sen, bateria, pamięć SPI, USB, akcelerometr, rekord urządzenia, wykaz adresów |
-| `04-led.md` | LED 2.33: system, polecenia, efekty |
+| `03-mcu.md` | MCU 2.36: procesy, czas, handshake, wybór wyjścia, sloty, kody klawiszy i mapa fabryczna, sen, bateria, pamięć SPI, USB, akcelerometr, rekord urządzenia, wykaz adresów |
+| `04-led.md` | LED 2.33: system, polecenia, efekty, wskaźniki, matryca i piny, jasność, uśpienie |
 | `05-ble.md` | BLE 2.05: obraz i banki, UART, polecenia, GATT i HID, rozgłaszanie i sloty, bondy, bateria, zasilanie, aktualizacja, odczyt z urządzenia, bezpieczeństwo |
 | `06-obinskit-i-bootloader.md` | ObinsKit 1.2.11: transport, nazwy poleceń, aktualizacja; bootloader i odczyt `--info` |
 | `07-port-qmk-i-narzedzia.md` | port QMK i AnnePro2-Tools względem oryginału, keymapa `Kazmir_BO`, buildy, historia zmian |

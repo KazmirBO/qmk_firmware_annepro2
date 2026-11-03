@@ -24,13 +24,14 @@ komputer ---- USB HID (EP4, 64 B) ---- MCU (węzeł 3) ---- USART0 115200 8N1 --
 
 | Łącze | Strona MCU | Strona drugiego układu |
 |---|---|---|
-| MCU - LED | USART0, PB0 (TX) i PB1 (RX), nadawanie PDMA kanał 1, odbiór w przerwaniu IRQ 23 [O] | UART układu LED |
+| MCU - LED | USART0, PB0 (TX) i PB1 (RX), nadawanie PDMA kanał 1, odbiór w przerwaniu IRQ 23 [O] | USART1 układu LED [O]; piny PA4 i PA5 według `annepro2-shine` [zewn.] |
 | MCU - BLE | USART1, PA4 (TX) i PA5 (RX), nadawanie PDMA kanał 3, odbiór w przerwaniu IRQ 24 [O] | USART0 CC254x w lokalizacji 1: P0.2 (RX), P0.3 (TX); 115200 bez kontroli przepływu; odbiór przez DMA kanał 3 [O] |
 | komputer - MCU | USB HID: kanał producenta 64 B (EP 0x03/0x84) dla ObinsKit, raporty klawiatury, multimediów, myszy i gamepada (`03-mcu.md` §10) [O] | - |
 | host - BLE | raport HID ID 2 (18 B w obie strony) niesie ramki protokołu (`02-protokol.md` §4) [O] | - |
 
 - Obie linie UART zasilają w MCU jedną kolejkę odbiorczą (`0x20000468`), z której ramki czyta proces „AT process” [O].
 - Układ BLE nie ma w kodzie żadnej komunikacji z LED: stan wskaźników BLE trafia do LED przez MCU (`20 0b`, `20 0c`, `20 07`) [O]. Brak fizycznego połączenia BLE-LED to wniosek [I].
+- Poza UART układy MCU i LED łączy najpewniej linia uśpienia: MCU PC3, LED PB12 (`04-led.md` §8) [I].
 - Przed długim snem MCU przełącza PA4 (TX do BLE) na GPIO w stanie wysokim, a po wybudzeniu klawiszem ustawia go nisko i wraca do USART (`03-mcu.md` §7) [O]. Czy to linia budzenia BLE, nie wiadomo [N].
 
 ## 3. Podział odpowiedzialności
@@ -94,7 +95,7 @@ Konfiguracja w `0xb1b8` (funkcja `0xe0c0`: port, maska, numer funkcji; 1 GPIO, 2
 | PC0 | GPIO, wejście bez podciągania, EXTI0 | detekcja zasilania USB |
 | PC10 | GPIO, wejście z podciąganiem w dół, EXTI10 | przełącznik Bluetooth z tyłu klawiatury (stan wysoki to USB) |
 | PA6 | GPIO, wejście z podciąganiem w górę | tylko źródło wybudzenia; rola [N] |
-| PC3 | GPIO, wyjście | ustawiany na 1 przed snem, zależnie od stanu podświetlenia; najpewniej zasilanie lub uśpienie układu LED [I] |
+| PC3 | GPIO, wyjście | ustawiany na 1 przed snem, zależnie od stanu podświetlenia; najpewniej linia uśpienia układu LED, który przy stanie wysokim na swoim PB12 wyłącza matrycę i zasypia (`04-led.md` §8) [I] |
 | PB6 | GPIO, wyjście | ustawiany na 1 przy starcie, poza tym nieużywany; rola [N] |
 | PC1 | funkcja 6 | rola [N] |
 | PB5, PB4, PB3, PB2, PD1 | GPIO, wejścia z podciąganiem w dół | wiersze macierzy |

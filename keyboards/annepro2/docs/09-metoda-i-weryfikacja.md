@@ -169,3 +169,17 @@ Każde twierdzenie dokumentacji sprzed przebudowy (wersja z commitu `2e37abad5e`
 - Część funkcji rozpoznano po kontekście (np. arytmetyka zmiennoprzecinkowa w MCU, `atan2`); takie miejsca mają znacznik [I].
 - Wnioski o martwym kodzie w BLE (`60 04`, zdarzenie 0x0008) opierają się na komplecie stałych wywołań `osal_set_event` i `osal_start_timerEx`; wywołanie pośrednie przez wskaźnik obaliłoby je [I].
 - Schemat płytki C18 nie jest dostępny, więc role części pinów zostają nieustalone.
+
+## 8. Uzupełnienie z 2026-11-03
+
+Druga runda analizy statycznej, skierowana na punkty z `10-niewiadome.md` i na obszary obrazów, których dokumentacja wcześniej nie opisywała. Źródłem były te same eksporty Ghidry (`analiza/eksport/`, bez ponownego importu), bajty obrazów i dane RW z §5. Nowe twierdzenia nie należą do 896 twierdzeń z §6 i nie mają wpisów w `analiza/rejestr-twierdzen.md`. Twierdzenia bajtowe z tej rundy sprawdza `analiza/py/sprawdz_bajty.py`.
+
+| Ustalenie | Gdzie | Dowód |
+|---|---|---|
+| suma kontrolna obrazu BLE: CRC-16/XMODEM pod plik+0x90 | `05-ble.md` §2 | obliczenie po pliku. Z około 2200 kombinacji (6 wielomianów z odbiciem i bez, wartość początkowa i końcowy XOR 0 albo 0xFFFF, 10 końców zakresu, 2 początki, 2 warianty pominięcia, sumy proste) trafiły dwie: CRC-16/XMODEM po całym pliku z pominięciem 0x90-0x93 i kombinacja bez sensu technicznego (wielomian 0xA097 z odbiciem, zakres poza końcem pliku). Przy tylu próbach jedno przypadkowe trafienie ma szansę około 7 %, a przypadkowe trafienie wariantu kanonicznego po całym pliku jest bardzo mało prawdopodobne [I] |
+| HCI 0xFC20 to `HCI_EXT_GET_CONNECTION_INFO` | `05-ble.md` §7 | dokumentacja TI BLE-Stack 3.01 (`hci_tl.h`) [zewn.] |
+| mapa fabryczna MCU (5 warstw ANSI, tablica ISO bez użycia), tablica pozycji macierzy, działanie `10 06` | `03-mcu.md` §6.1 | bajty `0xcbac`, `0xcce0`, `0xf2a4`, deskryptor `0x2000017c`, kod `0x80aa`, `0x7d40`, `0xcb78`; pozycje porównane z `info.json` portu QMK |
+| dane `50 07`, martwe ramki `40 07`, `atan2` i arytmetyka double | `03-mcu.md` §11, `02-protokol.md` §2 | listing: brak zapisów, komplet wywołań `etimer_set`, graf wywołań i stałe π |
+| procesy, takt, polecenia `20 xx`, wskaźniki, matryca, jasność i uśpienie LED | `04-led.md` §1, §3, §6-8 | pseudokod i listing LED; piny porównane z `annepro2-shine` (commit `0bcaf1c`, wariant C18) [zewn.] |
+
+Źródła zewnętrzne tej rundy (dostęp 2026-11-03): wątki forum TI E2E o bootloaderze szeregowym CC2530/CC2540 (sekcje `CHECKSUM` 0x2090-0x2091 i `CRC_SHDW` 0x2092-0x2093 w pliku linkera), dokumentacja TI BLE-Stack 3.01.00.07 (doxygen, `hci_tl.h`), lokalna kopia `annepro2-shine`.

@@ -28,8 +28,9 @@ Obraz `ap2_c18_0205_ble.bin` (155 648 B). Adresy kodu w zapisie `b:AAAA` (b to b
 Brak wektora URX0, bo odbiór UART idzie przez DMA [O].
 - Start (`0:25CB`): PSW = 0, SP = 0x3F, wskaźnik stosu XDATA (I:1A/1B) = 0x0280, FMAP = 0; `0:2537` ustawia MEMCTR.XBANK = 1, więc `X:8000`-`X:FFFF` to bank 1 (`X:8xxx` = plik+0x6xxx); kod kopiuje plik+0x92-0x536 do `X:1655`-`X:1AF9` (dane inicjujące: tablice atrybutów GATT, konfiguracja HID, dane rozgłaszania; X = plik + 0x15C3), zeruje `X:0280`-`X:1654` [O].
 - Trampolina banków: w obszarze wspólnym jest 830 stubów po 6 B w jednym ciągu `0:434B`-`0:56BF` (`12 25 e6 <lo> <hi> <bank>`, np. `12 25 e6 88 f7 01` pod `0:5395` prowadzi do `1:F788`); cele: bank 0 37, bank 1 199, bank 2 189, bank 3 338, bank 4 67, wszystkie różne [O]. `0:25E6` zdejmuje adres danych ze stosu, odkłada FMAP, czyta 3 bajty, odkłada adres celu, ustawia FMAP i skacze przez RET; procedury w bankach wracają przez `0:25E3` (POP FMAP, RET) [O].
-- Bez sumy kontrolnej: bajty plik+0x90-0x91 (`93 8e`) nie mają odwołań w aplikacji, a od plik+0x92 zaczynają się dane inicjujące, więc wcześniejsze skojarzenie z nagłówkiem TI OAD odpada; test CRC16 nie dał trafienia [O/N].
-- Bajty pod plik+0x619A (`78 69 e0 ab 50 c3 f0 d2`) to stała używana przez kod warstwy łącza w `1:9F6A`, znaczenie [N]; następujące po nich `01 2a` to UUID 0x2A01 [O]. Ciąg `oLoLoL…` pod plik+0x1B9-0x1DB to wartość początkowa bufora RAM `X:177C`-`X:179E`, który zapisuje kod warstwy łącza [O].
+- Suma kontrolna: u16 LE pod plik+0x90 (`93 8e`, czyli 0x8E93) to CRC-16/XMODEM (wielomian 0x1021, wartość początkowa 0, bez odbić i bez końcowego XOR) całego pliku 0x0-0x25FFF z pominięciem 4 bajtów plik+0x90-0x93 [O]. Inny zakres (sama treść do 0x1F480, start od 0x92) ani pominięcie tylko 2 bajtów tego wyniku nie dają [O]. Aplikacja nie czyta tych bajtów [O].
+- Tak liczy sumę bootloader szeregowy TI dla CC253x/CC254x: obraz od 0x2000, suma w 0x2090-0x2091 i jej kopia („shadow”) w 0x2092-0x2093, oba słowa pominięte w obliczeniu [zewn., forum TI E2E]. W tym obrazie plik+0x92-0x93 to jednak pierwsze dwa bajty danych inicjujących (`11 01`, kopiowane do `X:1655`), więc bootloader, który zapisuje kopię sumy jak bootloader TI, zmieniłby te dwa bajty [I]. Czy bootloader Obins tak robi, nie wiadomo [N].
+- Bajty pod plik+0x619A (`78 69 e0 ab 50 c3 f0 d2`) to stała używana przez kod warstwy łącza w `1:9F6A`: kod ładuje ją jako dwa słowa po 4 B przy przeglądaniu rekordów strony informacyjnej układu (licznik `X:7808` co najmniej 2, rekordy po 10 B od `X:7848`) [O]. Jako u16 LE to 27 000, 44 000, 50 000 i 54 000; znaczenie [N]. Następujące po niej `01 2a` to UUID 0x2A01 [O]. Ciąg `oLoLoL…` pod plik+0x1B9-0x1DB to wartość początkowa bufora RAM `X:177C`-`X:179E`, który zapisuje kod warstwy łącza [O].
 
 ## 3. UART do MCU
 
@@ -145,6 +146,7 @@ Wszystkie cztery kopie nazwy to `AnnePro2`, a adres BD jest wspólny i pochodzi 
 - Po upływie limitu rozgłaszanie się nie wznawia (GAPROLE_ADVERT_OFF_TIME = 0), a MCU nie dostaje żadnej ramki [O].
 - Parametry połączenia (`1:EE19`-`1:EE57`): aktualizacja włączona (0x310 = 1), interwał 9 × 1,25 ms = 11,25 ms (0x311, 0x312), latency 15 (0x313), timeout 4 s (0x314 = 400); żądanie idzie 4 s po połączeniu. To inne wartości niż statyczne PPCP (100-200 ms, latency 0, 10 s); co host przyjmie, pokaże dopiero `btmon` [O/N].
 - Polityka filtra rozgłaszania 0 przy każdym starcie; brak rozgłaszania kierowanego i LE Secure Connections [I]. Moc nadawania zmieniają tylko testy RF (`40 40`-`40 42`) [O].
+- Stos zawiera obsługę polecenia HCI 0xFC20 (`3:FBA5`, wołane z `3:CE52`): odpowiedź to zdarzenie 0x0420: `20 04 00`, 5 B danych i po 9 B na połączenie (`3:FBD9`-`3:FC4C`), a przy braku pamięci `20 04 07` (`3:FC5D`-`3:FC7A`) [O]. W TI BLE-Stack to `HCI_EXT_GET_CONNECTION_INFO` (`HCI_EXT_GetConnInfoCmd`) ze zdarzeniem `HCI_EXT_GET_CONNECTION_INFO_EVENT` 0x0420 [zewn., dokumentacja TI BLE-Stack 3.01, `hci_tl.h`]. Aplikacja go nie wysyła; to kod biblioteki [I].
 
 ## 8. Parowanie i bondy
 
@@ -200,6 +202,7 @@ Kod nie ustawia `KEY_DIST_LIST`, `KEYSIZE`, `OOB` ani `BOND_FAIL_ACTION`, więc 
 ## 11. Aktualizacja
 
 - Mechanizm aktualizacji leży w bootloaderze spoza obrazu. Po `02 01 01` układ resetuje się watchdogiem, a dalej działa bootloader [O co do resetu, I dalej].
+- Plik ma sumę CRC-16/XMODEM pod plik+0x90 liczoną po całych 0x26000 B (§2), czyli po obszarze flash 0x2000-0x27FFF, w układzie bootloadera szeregowego TI [O co do sumy, I co do bootloadera].
 - Bootloader zgłasza dla BLE bazę 0x4000 i rozmiar 0x1fe00 (`06-obinskit-i-bootloader.md` §6). Treść obrazu (128 129 B) się w nim mieści, cały plik (155 648 B) już nie. Jak baza 0x4000 odpowiada fizycznemu adresowi flash (obraz zaczyna się od fizycznego 0x2000), nie wiadomo, a wgrywania BLE nie testowano [N].
 
 ## 12. Odczyt GATT połączonej klawiatury

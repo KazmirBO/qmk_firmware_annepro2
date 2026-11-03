@@ -34,7 +34,7 @@ Jeden format ramki łączy MCU z LED i BLE, komputer (ObinsKit, USB HID) z MCU o
 - Proces „AT process” (`0x59e2`) pobiera ramki z kolejki odbiorczej. Ramka z celem 3 trafia do tablicy poleceń `0x20000494` (13 wpisów po 8 B, wyszukiwanie liniowe w `0x58b2`), każda inna jest przekazywana bez zmian do węzła docelowego (`0x8912`) [O]. Ramki od komputera do BLE przechodzą więc przez MCU.
 - Odpowiedź dostaje nadawca, z zamienionymi połówkami bajtu 2. MCU (`0x899e`) i BLE (`3:A326`) odpowiadają tylko nadawcom 1, 2 i 3 [O].
 - Bajt 2 w praktyce: `0x53` MCU do BLE, `0x43` MCU do LED, `0x35` BLE do MCU, `0x34` LED do MCU, `0x13` i `0x23` odpowiedzi MCU dla komputera i hosta po BLE [O].
-- MCU buduje też wewnętrzne ramki `40 07 <n>` z bajtem adresowym `0x00` (`0xb734`), których router nie wysyła nigdzie (brak gałęzi dla celu 0) [O].
+- MCU ma też kod wewnętrznych ramek `40 07 <n>` z bajtem adresowym `0x00` (`0xb734`), wstawianych do własnej kolejki odbiorczej; router nie ma gałęzi dla celu 0, więc nigdzie by nie trafiły [O]. Kod jest martwy: proces macierzy buduje je po upływie czterech etimerów (`0x20001260`-`0x20001290`, n = 1-4), a żadne z 13 wywołań `etimer_set` ich nie uzbraja [O].
 
 ## 3. Fragmentacja
 
@@ -75,7 +75,7 @@ Tablica `0x20000494`: `0x01` `0x5d88`, `0x02` `0x6256`, `0x03` `0x631e`, `0x10` 
 | `03 01` | odczyt pamięci SPI: adres u32 + `data[5]`·0x10000, długość `data[4]` | - |
 | `10 01` | zapis mapy klawiszy warstwy 0-3 do SPI 0x1000 + 0x100·warstwa; przy warstwie 0 kasuje sektor | `downloadKbdLayout` |
 | `10 02` | odczyt mapy warstwy (z kopii w RAM) | `uploadKbdLayout` |
-| `10 03` / `10 05` / `10 06` / `10 07` | bajty konfiguracji `0x2000115e` / `0x2000116b` / `0x2000115c` / `0x2000115f`; `10 07` wysyła też `20 09` do LED | `writeKbdMagicFn` / `writeKbdTap` / `writeKbdLayout` / `writeKbdCapslock` |
+| `10 03` / `10 05` / `10 06` / `10 07` | bajty konfiguracji `0x2000115e` / `0x2000116b` / `0x2000115c` / `0x2000115f`; `10 06` zapisuje 0 albo 1 i przeładowuje mapę: 0 mapa fabryczna z flash MCU, 1 mapa z SPI (`03-mcu.md` §6.1); `10 07` wysyła też `20 09` (styl wskaźnika Caps Lock) do LED | `writeKbdMagicFn` / `writeKbdTap` / `writeKbdLayout` / `writeKbdCapslock` |
 | `10 11` / `10 12` / `10 13` | tryb tap-key (2/3), tryb modyfikatora (4/5), czas 5-200 | `writeKbdTapkeyActMode` / `writeKbdTapkeyModifykeyActMode` / `writeKbdTapkeyTimeout` |
 | `12 01` | strumień zdarzeń klawiszy wł./wył. (`0x20001351`); przy włączonym MCU wysyła do komputera `12 02` z 10 B (5 × u16) przy każdej zmianie macierzy | - |
 | `20 xx` | podświetlenie: podpolecenia 1-7, 0x0c-0x0e, 0x12, 0x15, 0x1a, 0x1b, 0x1e, 0x1f (`04-led.md` §3) | `writeLightList` (`20 04`), `writeLightHoldOn` (`20 0d`), `writeBacklightBrightness` (`20 15`), `readLedIndicatorColor` / `writeLedIndicatorColor` (`20 1a` / `20 1b`), `readLedPowerMode` / `writeLedPowerMode` (`20 1e` / `20 1f`), `downloadLight` (`20 02`) |
@@ -97,7 +97,7 @@ Tablica `0x200029b8` ma 12 wpisów (0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x20, 0x
 | `01 03` | odpowiedź: wersja u16 0x0221 |
 | `02 01` | na `02 01 02` od MCU odpowiedź `21 02 02 21` (stan 2, wersja 0x0221) |
 | `02 03` | emulacja odpowiedzi bootloadera: 24 B, trzy rekordy po 8 B z 0x40 w bajcie 5 |
-| `20 xx` | podświetlenie, wskaźniki, efekty |
+| `20 xx` | podświetlenie, wskaźniki, efekty; `20 11` tylko potwierdza (nadawcy 1); nieobsługiwane podpolecenia dostają odpowiedź 1 |
 | `21 xx` | pusta procedura, więc wizualizacja dźwięku z ObinsKit (`21 01`, `21 02`) nie działa |
 
 ### 5.3. BLE 2.05 (węzeł 5)
@@ -141,7 +141,7 @@ Kody i układ danych pochodzą z ObinsKit i z odczytu `--info` na urządzeniu (`
 | `40 01 <slot>` / `40 04 <slot>` | przytrzymanie / krótkie naciśnięcie klawisza slotu |
 | `10 04 <8 B>`, `10 08 <4 B>`, `60 04 <8 B>` | raporty klawiatury, multimediów i myszy wirtualnej, gdy wyjściem jest BLE |
 | `11 01` | po wybudzeniu przez RTC, czyli po upływie limitu snu |
-| `50 07 <5 B>` | co 2 ticki w trybie kierownicy, gdy wyjściem nie jest USB; 5 B spod `0x200002c4` |
+| `50 07 <5 B>` | co 2 ticki w trybie kierownicy, gdy wyjściem nie jest USB; 5 B spod `0x200002c4`, czyli zawsze `00 00 00 00` i pierwszy bajt bufora odbiorczego procesu AT (`03-mcu.md` §11) |
 
 ### 6.2. BLE do MCU (bajt adresowy `0x35`)
 
