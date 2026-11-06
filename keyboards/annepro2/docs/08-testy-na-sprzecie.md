@@ -15,7 +15,7 @@ Testy wykonał użytkownik na jednej klawiaturze Anne Pro 2 C18 z hostem po BLE.
 | Wgranie przez `annepro2_tools --boot` i start | `5bf72bff35` | klawiatura działa |
 | `annepro2_tools --info` w trybie IAP (tylko odczyt) | Tools `006d480` | tryb 1 (IAP) dla MCU, LED i BLE; trzy rekordy z bazą 0x4000 i rozmiarem 0x1fe00 (`06-obinskit-i-bootloader.md`) |
 | Wgranie `18355aa8ba` (korekta 0 % baterii) | `18355aa8ba`, 35 808 B | `Flash complete`, klawiatura wstała, po BLE bateria 92 % |
-| Przełącznik Bluetooth (`AP2_BT_SWITCH` w `Kazmir_BO`), 2026-10-26 | `6b71633911`, 31 500 B | Off daje USB, On daje Bluetooth, zgodnie z analizą oryginału |
+| Przełącznik Bluetooth (`AP2_BT_SWITCH` w `kazmir_bo`), 2026-10-26 | `6b71633911`, 31 500 B | Off daje USB, On daje Bluetooth, zgodnie z analizą oryginału |
 | Odczyt GATT połączonej klawiatury (BlueZ przez D-Bus, tylko odczyt) | firmware QMK | wyniki w `05-ble.md` |
 
 Co to potwierdza z analizy oryginału: format ramek, polecenia `40 01`, `40 04`, `10 04`, `10 08` i zdarzenia `20 07`, `20 0c` (funkcjonalnie, nie bajt po bajcie); format `01 05` (surowy odczyt ADC, 16 bitów, little-endian) i konfigurację ADC (kanał 7, `HCLK/64`); bity jasności w raporcie multimediów (0x40, 0x80); kierunek przełącznika Bluetooth na PC10; układ odpowiedzi bootloadera na `02 03`.
@@ -23,6 +23,7 @@ Co to potwierdza z analizy oryginału: format ramek, polecenia `40 01`, `40 04`,
 ## 2. Czego nie sprawdzono
 
 - Wersji `6c03dfe813` (2026-10-27) jeszcze nie wgrywano: ramki budzącej BLE w formacie oryginału, numeru seryjnego DIS z UDID (`AP2_BLE_SERIAL`) i wskaźnika baterii z krzywą BLE. Procedura w §3.1.
+- Limitów czasu połączenia i unpair z klawiatury (C18, jeszcze niewgrane): tap slotu bez sparowanego hosta wraca na USB po około 6 s; tap slotu ze znanym, włączonym hostem zostaje na BLE; `FN2` + `5` przytrzymane 3 s kasuje bondy (krótkie naciśnięcie nic nie robi), a miganie na czerwono potwierdza; po opóźnionym starcie układu BLE numer seryjny i bateria nadal są wysyłane.
 - Korekty 0 % baterii (`AP2_BATTERY_EMPTY_MV`) przy niskim napięciu.
 - Zgodności procentu baterii z napięciem zmierzonym multimetrem (napięcie odniesienia 3,1 V i dzielnik 2:1 pochodzą z analizy firmware).
 - Wersji układu BLE odebranej przez port: `annepro2_ble_version()` nie jest nigdzie wyświetlana.

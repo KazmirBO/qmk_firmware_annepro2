@@ -1,6 +1,6 @@
 # Metoda i weryfikacja
 
-Znaczniki i konwencje: `README.md` §2. Skrypty i wyniki z katalogu `analiza/` wymienione niżej leżą w lokalnym katalogu analizy autora, poza forkiem.
+Znaczniki i konwencje: `README.md` §2.
 
 ## 1. Zakres i zasady
 
@@ -86,14 +86,14 @@ Wynik: MCU 0x711 B, LED 6749 B. W danych MCU struktury procesów wskazują nazwy
 
 ## 6. Raport weryfikacji (2026-10-27)
 
-Każde twierdzenie dokumentacji sprzed przebudowy (wersja z commitu `2e37abad5e` tego forka) sprawdzono ponownie u źródła, w czterech obszarach: MCU i LED (eksport Ghidry, objdump, bajty), BLE (listing Ghidry z rozwiązanymi stubami, bajty), ObinsKit i źródła zewnętrzne, port QMK z narzędziami (kod, `git`, buildy, testy). Wyniki z dowodami są w `analiza/wyniki/*.md`, a zestawienie z miejscem każdego twierdzenia w nowej dokumentacji w `analiza/rejestr-twierdzen.md`.
+Każde twierdzenie dokumentacji sprzed przebudowy (kopia w `docs.bak-2026-10-27/`) sprawdzono ponownie u źródła, w czterech obszarach: MCU i LED (eksport Ghidry, objdump, bajty), BLE (listing Ghidry z rozwiązanymi stubami, bajty), ObinsKit i źródła zewnętrzne, port QMK z narzędziami (kod, `git`, buildy, testy). Wyniki z dowodami są w `analiza/wyniki/*.md`, a zestawienie z miejscem każdego twierdzenia w nowej dokumentacji w `analiza/rejestr-twierdzen.md`.
 
 | Obszar | Potwierdzone | Poprawione | Obalone | Nieaktualne | Niesprawdzalne | Razem |
 |---|---|---|---|---|---|---|
 | MCU i LED | 316 | 30 | 2 | 0 | 15 | 363 |
 | BLE | 223 | 42 | 12 | 0 | 13 | 290 |
 | ObinsKit i źródła zewnętrzne | 133 | 14 | 4 | 0 | 8 | 159 |
-| port QMK, Tools, obraz do wgrania | 55 | 11 | 5 | 5 | 8 | 84 |
+| port QMK, Tools, `do-wgrania` | 55 | 11 | 5 | 5 | 8 | 84 |
 | razem | 727 | 97 | 23 | 5 | 44 | 896 |
 
 ### 6.1. Twierdzenia obalone
@@ -117,7 +117,7 @@ Każde twierdzenie dokumentacji sprzed przebudowy (wersja z commitu `2e37abad5e`
 | P-029 | przy parowaniu port nie przełącza raportów na BLE | przełącza (od `4c87841d68`) |
 | P-053 | `KC_AP2_BATT` nie jest przypisany w keymapie | jest na `Fn2` + `8` |
 | P-059 | port wysyła zbędny bajt `0x00` po numerze slotu | już nie (od `4c87841d68`) |
-| P-069 | `AP2_BT_SWITCH` nie jest włączone w żadnej keymapie | jest włączone w `Kazmir_BO` |
+| P-069 | `AP2_BT_SWITCH` nie jest włączone w żadnej keymapie | jest włączone w `kazmir_bo` |
 
 ### 6.2. Najważniejsze poprawki
 
@@ -154,13 +154,13 @@ Każde twierdzenie dokumentacji sprzed przebudowy (wersja z commitu `2e37abad5e`
 | O-051, O-066, O-078-O-082, O-086, O-088, O-100, O-106, O-114 | adresat `readIapMode` to MCU; makra `30 03`-`30 0a`; kilka nazw nieustalonych | adresat z argumentu; `writeMacro` = `30 01`, `downloadMacro` = `30 05`; `readDeviceType` = `01 01`, `readFirmwareVersion` = `01 03`, `writeSleepTimeout` = `01 0f`, `writeIapMemory` = `02 31`, `writeEraseMemory` = `02 43`, `downloadKbdLayout` = `10 01`; nazwy klawiszy HID do 0xA1 |
 | P-022 | port powtarza handshake według harmonogramu oryginału | 10 razy częściej (50 ms, potem 500 ms) |
 | P-065 | korekta baterii daje 10 % od 3,25 V | 10 % od 3,2 V, dalej liniowo |
-| P-078 | obraz do wgrania z `2e37abad5e` i niezacommitowanej zmiany | z commitu `6b71633911` (identyczny build) |
+| P-078 | `do-wgrania` z `2e37abad5e` i niezacommitowanej zmiany | z commitu `6b71633911` (identyczny build) |
 | P-002 | nic nie wgrywano na klawiaturę | nie wgrywano obrazów fabrycznych; buildy QMK tak |
 | B-021-B-025 | niewiadome z README: okres timera baterii, `0x0B5E`, `40 13`, `40 16`, `60 04` | rozstrzygnięte |
 
 ### 6.3. Niesprawdzalne
 
-44 twierdzenia nie dały się sprawdzić u źródła: relacje z testów na sprzęcie i zrzuty ekranu użytkownika, testy z wcześniejszych sesji, których nie zachowano (parser na komputerze, test 4096 wartości ADC, pary plik/cel w Tools), działanie bootloaderów spoza obrazów, tożsamość schematu z plikiem używanym we wcześniejszej rundzie, liczby z poprzedniego przebiegu Ghidry (644 procedury, 398 nazw, 764 stuby) oraz twierdzenia o REA. W nowej dokumentacji mają oznaczone źródło albo trafiły do `10-niewiadome.md`.
+44 twierdzenia nie dały się sprawdzić u źródła: relacje z testów na sprzęcie i zrzuty ekranu użytkownika, testy z wcześniejszych sesji, których nie zachowano (parser na komputerze, test 4096 wartości ADC, pary plik/cel w Tools), działanie bootloaderów spoza obrazów, tożsamość schematu z plikiem otwieranym wcześniej z `~/Pobrane/`, liczby z poprzedniego przebiegu Ghidry (644 procedury, 398 nazw, 764 stuby) oraz twierdzenia o REA. W nowej dokumentacji mają oznaczone źródło albo trafiły do `10-niewiadome.md`.
 
 ## 7. Ograniczenia
 

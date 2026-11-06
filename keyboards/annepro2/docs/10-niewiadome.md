@@ -58,7 +58,8 @@ Stan na 2026-11-03: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Pytanie | Co rozstrzygnie |
 |---|---|
 | Zgodność procentu baterii z napięciem ogniwa i działanie korekty `AP2_BATTERY_EMPTY_MV` przy niskim napięciu | pomiar multimetrem, w tym tuż po wyłączeniu się klawiatury |
-| Czy wcześniej wgrywane obrazy są identyczne z buildami swoich commitów | build starszych commitów w osobnym drzewie |
+| Czy `40 04` wysłane do hosta, z którym łącze BLE nadal trwa (po `KC_AP2_USB` albo przełączniku), wywołuje ponownie `20 0c`; jeśli nie, limit `AP2_BLE_CONNECT_TIMEOUT_MS` mógłby wrócić na USB mimo żywego łącza (limit działa tylko po przełączeniu z USB i ma wyłącznik `0`) [N] | tap slotu przy połączonym hoście z nagraniem UART (`08-testy-na-sprzecie.md` §3.3) |
+| Czy obrazy w `do-wgrania/wycofanie/` są identyczne z buildami swoich commitów | build starszych commitów w osobnym drzewie |
 | Czy układ BLE przyjmuje numer seryjny od portu (`AP2_BLE_SERIAL`), czy rekord pod `0x3E00` na danym egzemplarzu zawiera UDID i czy ramka budząca w formacie oryginału działa tak jak poprzednia | wgranie `6c03dfe813` i odczyt Device Information (`08-testy-na-sprzecie.md` §3.1) |
 
 ## 7. Rozstrzygnięte 2026-11-03

@@ -1,7 +1,5 @@
 # Anne Pro 2 (C18): analiza fabrycznego firmware i port QMK
 
-*English summary.* These notes (in Polish) describe how the Anne Pro 2 C18 works, from static analysis of the stock firmware of the main MCU (Holtek HT32F52352, Contiki OS), the LED MCU and the Bluetooth MCU (TI CC2540/CC2541, 8051, TI BLE stack), and of ObinsKit 1.2.11, done with Ghidra 12.1.4 in headless mode through Claude Code. They cover the frame format shared by the three processors, USB and the BLE vendor report, the commands of all three processors and of the bootloader, the pairing slots, the output selection by the Bluetooth switch on PC10, the BLE chip internals (GATT, HID report map, bonding, advertising, battery service), sleep, the battery curves, the USB descriptors, the hidden "Game wheel" mode and the ObinsKit update procedure, and how the QMK changes in this fork relate to the stock firmware. On 2026-10-27 every claim was checked again against the images (896 claims, 97 corrected, 23 refuted; `09-metoda-i-weryfikacja.md`). Claims are marked **[O]** observed, **[I]** inferred, **[N]** unknown.
-
 Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6). Uzupełnienie z 2026-11-03 (mapa fabryczna MCU, matryca, wskaźniki i uśpienie LED, suma kontrolna obrazu BLE i kilka rozstrzygniętych niewiadomych) opisuje `09-metoda-i-weryfikacja.md` §8.
 
 ## 1. Źródła
@@ -15,7 +13,7 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 - Wszystkie trzy obrazy pochodzą z repozytorium społeczności `dchang0/AnnePro2Firmware`, commit `2727333999bf0cf108b6247d3194a6b4679bbb40`, katalog `StockFirmware/` (sumy sprawdzone 2026-10-27). Zgodności z wydaniami producenta nie sprawdzano.
 - ObinsKit 1.2.11 dla Linuksa: archiwum `ObinsKit_1.2.11_x64.tar.gz` (SHA-256 `2a10aed5…096cd`), szczegóły w `06-obinskit-i-bootloader.md` §1.
 - Schemat: `AnnePro2Schematics.PDF` z `OpenAnnePro/AnnePro2-Hardware`; rysuje wariant 48-pinowy, więc dla C18 nie jest autorytatywny (`01-architektura.md` §7).
-- Port QMK: katalog `keyboards/annepro2/` tego forka (`07-port-qmk-i-narzedzia.md`).
+- Port QMK: fork `qmk_firmware_annepro2`, katalog `keyboards/annepro2/` (`07-port-qmk-i-narzedzia.md`).
 - Do porównania pinów matrycy LED: otwarty firmware LED `annepro2-shine` (commit `0bcaf1c`, wariant C18; `04-led.md` §7).
 
 ## 2. Znaczniki i konwencje
@@ -55,11 +53,14 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 | `04-led.md` | LED 2.33: system, polecenia, efekty, wskaźniki, matryca i piny, jasność, uśpienie |
 | `05-ble.md` | BLE 2.05: obraz i banki, UART, polecenia, GATT i HID, rozgłaszanie i sloty, bondy, bateria, zasilanie, aktualizacja, odczyt z urządzenia, bezpieczeństwo |
 | `06-obinskit-i-bootloader.md` | ObinsKit 1.2.11: transport, nazwy poleceń, aktualizacja; bootloader i odczyt `--info` |
-| `07-port-qmk-i-narzedzia.md` | port QMK i AnnePro2-Tools względem oryginału, keymapa `Kazmir_BO`, buildy, historia zmian |
+| `07-port-qmk-i-narzedzia.md` | port QMK i AnnePro2-Tools względem oryginału, keymapa `kazmir_bo`, buildy, historia zmian |
 | `08-testy-na-sprzecie.md` | testy na klawiaturze, czego nie sprawdzono, procedury (po wgraniu, `btmon`, podsłuch UART) |
 | `09-metoda-i-weryfikacja.md` | narzędzia, powtórzenie analizy, import w Ghidrze, dane RW, raport weryfikacji |
 | `10-niewiadome.md` | otwarte pytania i co by je rozstrzygnęło |
 
 ## 5. Poza tym katalogiem
 
-Skrypty analizy, eksporty Ghidry, wyniki weryfikacji z dowodami i rejestr twierdzeń (`analiza/`) oraz instrukcja wgrania obrazu dla keymapy `Kazmir_BO` leżą w lokalnym katalogu analizy autora i nie należą do forka.
+- `analiza/`: skrypty importu do Ghidry i kontroli, eksporty pseudokodu i listingów, wyniki weryfikacji (`analiza/wyniki/`) i rejestr twierdzeń (`analiza/rejestr-twierdzen.md`).
+- `propozycje/`: archiwalne patche z 2026-10-14 i kopie plików sprzed zmian; ich treść jest dziś w commitach forka.
+- `do-wgrania/`: obraz portu dla keymapy `kazmir_bo`, narzędzie do wgrywania i instrukcja.
+- `docs.bak-2026-10-27/`: dokumentacja sprzed przebudowy, do której odwołują się wyniki weryfikacji.
