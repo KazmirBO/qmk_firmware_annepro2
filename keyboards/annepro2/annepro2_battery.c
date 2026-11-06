@@ -1,3 +1,19 @@
+/* Copyright 2026 KazmirBO
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include "annepro2_battery.h"
 
 #ifdef AP2_BLE_BATTERY
@@ -20,13 +36,13 @@
 #    define AP2_ADC_ICLR AP2_ADC_REG(0x08C) /* interrupt clear */
 
 #    define AP2_ADC_CR_ENABLE (1u << 7)
-#    define AP2_ADC_TSR_SOFTWARE (1u << 0)  /* start a conversion */
-#    define AP2_ADC_TSR_STOCK 0x10u         /* value written by the stock firmware, trigger control = 1 */
+#    define AP2_ADC_TSR_SOFTWARE (1u << 0) /* start a conversion */
+#    define AP2_ADC_TSR_STOCK 0x10u        /* value written by the stock firmware, trigger control = 1 */
 #    define AP2_ADC_TCR_STOCK 1u
-#    define AP2_ADC_INT_EOC (1u << 0)       /* end of the single conversion */
+#    define AP2_ADC_INT_EOC (1u << 0) /* end of the single conversion */
 #    define AP2_ADC_RESULT_MASK 0x0FFFu
 #    define AP2_ADC_LST_ENTRY_MASK 0x1Fu
-#    define AP2_ADC_CKCU_DIV_64 6u          /* ADC clock = HCLK / 64 */
+#    define AP2_ADC_CKCU_DIV_64 6u /* ADC clock = HCLK / 64 */
 #    define AP2_ADC_CKCU_DIV_SHIFT 16
 
 #    define AP2_ADC_CHANNEL 7
@@ -58,8 +74,8 @@ static uint32_t shown_timer;
 #    define DISPLAY_KEYS 10
 #    define DISPLAY_SET_SIZE PROTO_TX_MESSAGE_SIZE(6)   /* row, column, colour */
 #    define DISPLAY_UNSET_SIZE PROTO_TX_MESSAGE_SIZE(2) /* row, column */
-static uint16_t  display_todo; /* bit i: key 1 + i of the number row still to write */
-static bool      display_set;  /* write the level, or clear the keys */
+static uint16_t  display_todo;                          /* bit i: key 1 + i of the number row still to write */
+static bool      display_set;                           /* write the level, or clear the keys */
 static uint8_t   display_lit;
 static ap2_led_t display_color;
 
@@ -130,8 +146,7 @@ static uint8_t percent_from_mv(uint32_t mv) {
         uint16_t start; /* mV */
         uint8_t  width; /* mV per 10 %, 0 for the top step */
         uint8_t  base;  /* percent at start */
-    } curve[] = {{4150, 0, 100}, {4000, 150, 90}, {3900, 100, 80}, {3800, 100, 70}, {3750, 50, 60},
-                 {3700, 50, 50}, {3650, 50, 40},  {3600, 50, 30},  {3500, 100, 20}, {3400, 100, 10}};
+    } curve[] = {{4150, 0, 100}, {4000, 150, 90}, {3900, 100, 80}, {3800, 100, 70}, {3750, 50, 60}, {3700, 50, 50}, {3650, 50, 40}, {3600, 50, 30}, {3500, 100, 20}, {3400, 100, 10}};
     for (uint8_t i = 0; i < sizeof(curve) / sizeof(curve[0]); i++) {
         if (mv < curve[i].start) continue;
         if (curve[i].width == 0) return curve[i].base;
@@ -171,7 +186,9 @@ uint16_t annepro2_battery_scaled(uint16_t raw) {
     return (uint16_t)scaled; /* above the correction the reading is not converted, so it does not lose precision */
 }
 
-uint8_t annepro2_battery_percent(uint16_t raw) { return percent_from_mv(AP2_BATTERY_MV(raw)); }
+uint8_t annepro2_battery_percent(uint16_t raw) {
+    return percent_from_mv(AP2_BATTERY_MV(raw));
+}
 
 /* Store a calibrated reading. */
 static void history_add(uint16_t value) {
@@ -183,7 +200,8 @@ static void history_add(uint16_t value) {
 /* The level sent to the BLE MCU: the highest stored reading. */
 static uint16_t history_max(void) {
     uint16_t max = 0;
-    for (uint8_t i = 0; i < AP2_BATTERY_HISTORY; i++) max = MAX(max, history[i]);
+    for (uint8_t i = 0; i < AP2_BATTERY_HISTORY; i++)
+        max = MAX(max, history[i]);
     return max;
 }
 
@@ -242,7 +260,9 @@ void annepro2_battery_toggle_display(void) {
     }
 }
 
-void annepro2_battery_request_send(void) { send_now = true; }
+void annepro2_battery_request_send(void) {
+    send_now = true;
+}
 
 void annepro2_battery_task(void) {
     if (shown && timer_elapsed32(shown_timer) >= AP2_BATTERY_SHOW_MS) hide_display();

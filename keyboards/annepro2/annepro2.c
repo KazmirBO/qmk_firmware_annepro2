@@ -33,7 +33,7 @@ static const SerialConfig uart_115200_config = {
 
 #ifndef LED_UART_BAUD_RATE
 #    define LED_UART_BAUD_RATE 115200
-#endif  // LED_UART_BAUD_RATE
+#endif // LED_UART_BAUD_RATE
 
 static const SerialConfig led_uart_runtime_config = {
     .speed = LED_UART_BAUD_RATE,
@@ -47,13 +47,20 @@ static const uint8_t led_mcu_wakeup[11] = {0x7b, 0x10, 0x43, 0x10, 0x03, 0x00, 0
 #ifndef AP2_BLE_HANDSHAKE_TRIES
 #    define AP2_BLE_HANDSHAKE_TRIES 24
 #endif
+#ifndef AP2_BLE_HANDSHAKE_SLOW_MS
+#    define AP2_BLE_HANDSHAKE_SLOW_MS 5000 /* the stock interval, once the quick tries are used up */
+#endif
 static bool     ble_ready;
 static uint16_t ble_version;
 static uint8_t  ble_ping_count;
 static uint32_t ble_ping_timer;
 
-bool     annepro2_ble_is_ready(void) { return ble_ready; }
-uint16_t annepro2_ble_version(void) { return ble_version; }
+bool annepro2_ble_is_ready(void) {
+    return ble_ready;
+}
+uint16_t annepro2_ble_version(void) {
+    return ble_version;
+}
 
 static const ap2_led_t ap2_blue = {
     .p.blue  = 0xff,
@@ -85,7 +92,7 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
     if (f[BLE_RX_TYPE] == BLE_TYPE_FRAGMENT && f[BLE_RX_SEQ] != 0x10) return;
     if (len < 3) return; /* no data byte */
     const uint8_t cmd = f[BLE_RX_CMD], sub = f[BLE_RX_SUB];
-    const uint8_t d0  = f[BLE_RX_DATA];
+    const uint8_t d0 = f[BLE_RX_DATA];
 
     switch (cmd) {
         case BLE_CMD_LED:
@@ -115,7 +122,9 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
     }
 }
 
-static uint16_t ble_rx_len(void) { return ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble_rx[BLE_RX_LEN_HI] << 8); }
+static uint16_t ble_rx_len(void) {
+    return ble_rx[BLE_RX_LEN_LO] | ((uint16_t)ble_rx[BLE_RX_LEN_HI] << 8);
+}
 
 /* Whether the bytes received so far (ble_rx[0] is always the sync byte) can be the start of a frame. The stock
  * firmware accepts only the two frame types, and the header ends with the sync byte and gives a length of at most
@@ -132,7 +141,8 @@ static bool ble_rx_valid(void) {
 /* Drop the bytes before the next sync byte, so that a frame starting inside a rejected one is not lost. */
 static void ble_rx_resync(void) {
     uint8_t i = 1;
-    while (i < ble_rx_pos && ble_rx[i] != BLE_SYNC_START) i++;
+    while (i < ble_rx_pos && ble_rx[i] != BLE_SYNC_START)
+        i++;
     memmove(ble_rx, ble_rx + i, ble_rx_pos - i);
     ble_rx_pos -= i;
 }
@@ -145,7 +155,8 @@ static void ble_rx_byte(uint8_t byte) {
     }
     if (ble_rx_pos == 0 && byte != BLE_SYNC_START) return;
     ble_rx[ble_rx_pos++] = byte;
-    while (ble_rx_pos > 0 && !ble_rx_valid()) ble_rx_resync();
+    while (ble_rx_pos > 0 && !ble_rx_valid())
+        ble_rx_resync();
     /* A rejected frame leaves at most 7 bytes, so a header can only be complete when the byte appended here ends it. */
     if (ble_rx_pos < BLE_RX_HEADER_SIZE) return;
     const uint16_t len = ble_rx_len();
@@ -179,11 +190,13 @@ static void ble_poll(void) {
 }
 
 static void ble_handshake_task(void) {
-    if (ble_ready || ble_ping_count >= AP2_BLE_HANDSHAKE_TRIES) return;
-    const uint16_t interval = ble_ping_count < 5 ? 50 : 500;
+    if (ble_ready) return;
+    /* The pings never stop: a BLE MCU that starts late or restarts is still reached, as with the stock firmware, only
+     * slowly after AP2_BLE_HANDSHAKE_TRIES quick ones. */
+    const uint16_t interval = ble_ping_count < 5 ? 50 : ble_ping_count < AP2_BLE_HANDSHAKE_TRIES ? 500 : AP2_BLE_HANDSHAKE_SLOW_MS;
     if (timer_elapsed32(ble_ping_timer) < interval) return;
     ble_ping_timer = timer_read32();
-    ble_ping_count++;
+    if (ble_ping_count < UINT8_MAX) ble_ping_count++;
     annepro2_ble_startup();
     annepro2_ble_request_version();
 }
@@ -246,7 +259,7 @@ static void led_status_received(void) {
     led_repairs++;
     led_sync(true);
     led_update_kb(host_keyboard_led_state()); /* sticky keys of the keymap, such as a Caps Lock indicator */
-    layer_state_set_kb(layer_state);         /* the layer colour of the keymap */
+    layer_state_set_kb(layer_state);          /* the layer colour of the keymap */
 }
 #endif
 
@@ -311,12 +324,18 @@ static uint16_t usb_wake_signal;  /* the last wakeup signal; 16 bits time the re
 
 /* Only a host that had configured the keyboard can be asleep: the USB peripheral may also report a suspend with no
  * host at all (on battery, on a charger). */
-static bool usb_bus_asleep(void) { return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE; }
+static bool usb_bus_asleep(void) {
+    return USB_DRIVER.state == USB_SUSPENDED && USB_DRIVER.saved_state == USB_ACTIVE;
+}
 
 /* Asleep and not taken as gone: the keyboard powers down for it, and it counts as in use. */
-static bool usb_host_asleep(void) { return usb_bus_asleep() && !usb_gone; }
+static bool usb_host_asleep(void) {
+    return usb_bus_asleep() && !usb_gone;
+}
 
-bool annepro2_usb_host_in_use(void) { return USB_DRIVER.state == USB_ACTIVE || usb_host_asleep(); }
+bool annepro2_usb_host_in_use(void) {
+    return USB_DRIVER.state == USB_ACTIVE || usb_host_asleep();
+}
 
 static void usb_signal_wakeup(void) {
     usb_wake_signal = timer_read();
@@ -465,7 +484,8 @@ void keyboard_pre_init_kb(void) {
     proto_init(&proto, led_receive);
 
     // loop to clear out receive buffer from shine wakeup
-    while (!sdGetWouldBlock(&SD0)) sdGet(&SD0);
+    while (!sdGetWouldBlock(&SD0))
+        sdGet(&SD0);
 
     sdStart(&SD0, &led_uart_runtime_config);
     keyboard_pre_init_user();
@@ -525,7 +545,9 @@ static struct {
     bool     pending;
 } slots[4];
 
-static void slot_feedback(uint8_t row, uint8_t col) { ap2_led_blink(row, col, ap2_blue, 8, 50); }
+static void slot_feedback(uint8_t row, uint8_t col) {
+    ap2_led_blink(row, col, ap2_blue, 8, 50);
+}
 
 static void slot_event(uint8_t slot, keyrecord_t *record) {
     if (record->event.pressed) {
@@ -550,6 +572,56 @@ static void slot_tick(void) {
     }
 }
 #endif /* AP2_BLE_SLOT_TAP_HOLD */
+
+/*
+ * KC_AP2_BT_UNPAIR deletes the bonds of all four slots, so it acts only after the key has been held for
+ * AP2_BLE_UNPAIR_HOLD_MS; 0 acts on the press.
+ */
+#ifndef AP2_BLE_UNPAIR_HOLD_MS
+#    define AP2_BLE_UNPAIR_HOLD_MS 3000
+#endif
+
+static const ap2_led_t ap2_red = {
+    .p.blue  = 0x00,
+    .p.red   = 0xff,
+    .p.green = 0x00,
+    .p.alpha = 0xff,
+};
+
+static void unpair_now(uint8_t row, uint8_t col) {
+    annepro2_ble_unpair();
+    annepro2_ble_disconnect();
+    ap2_led_cancel_blink();
+    ap2_led_blink(row, col, ap2_red, 8, 50);
+}
+
+#if AP2_BLE_UNPAIR_HOLD_MS > 0
+/* 16-bit timer and no flag (row UNPAIR_IDLE: not held), because RAM is short on the C15. */
+#    define UNPAIR_IDLE 0xff
+_Static_assert(AP2_BLE_UNPAIR_HOLD_MS < 0x10000, "the unpair hold time is 16-bit");
+static struct {
+    uint16_t timer;
+    uint8_t  row, col;
+} unpair_key = {.row = UNPAIR_IDLE};
+
+static void unpair_event(keyrecord_t *record) {
+    if (record->event.pressed) {
+        unpair_key.timer = timer_read();
+        unpair_key.row   = record->event.key.row;
+        unpair_key.col   = record->event.key.col;
+    } else {
+        unpair_key.row = UNPAIR_IDLE; /* released before the hold time: nothing is deleted */
+    }
+}
+
+static void unpair_tick(void) {
+    if (unpair_key.row != UNPAIR_IDLE && timer_elapsed(unpair_key.timer) >= AP2_BLE_UNPAIR_HOLD_MS) {
+        const uint8_t row = unpair_key.row, col = unpair_key.col;
+        unpair_key.row = UNPAIR_IDLE;
+        unpair_now(row, col);
+    }
+}
+#endif
 
 #ifdef AP2_BT_SWITCH
 /*
@@ -620,9 +692,13 @@ static void idle_task(void) {
 void matrix_scan_kb(void) {
     ble_poll();
     ble_handshake_task();
+    if (annepro2_ble_task()) ap2_led_cancel_blink(); /* a connect timed out: back on the USB host */
     annepro2_battery_task();
 #ifdef AP2_BLE_SLOT_TAP_HOLD
     slot_tick();
+#endif
+#if AP2_BLE_UNPAIR_HOLD_MS > 0
+    unpair_tick();
 #endif
 #ifdef AP2_BT_SWITCH
     bt_switch_task();
@@ -637,7 +713,8 @@ void matrix_scan_kb(void) {
 
     /* While there's data from LED keyboard sent - read it. */
     msg_t c;
-    while ((c = sdGetTimeout(&SD0, TIME_IMMEDIATE)) >= MSG_OK) proto_consume(&proto, (uint8_t)c);
+    while ((c = sdGetTimeout(&SD0, TIME_IMMEDIATE)) >= MSG_OK)
+        proto_consume(&proto, (uint8_t)c);
 
     matrix_scan_user();
 }
@@ -647,6 +724,13 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
     if (keycode >= KC_AP2_BT1 && keycode <= KC_AP2_BT4) {
         if (record->event.pressed) forward_reactive_keypress(record);
         slot_event(keycode - KC_AP2_BT1, record);
+        return false;
+    }
+#endif
+#if AP2_BLE_UNPAIR_HOLD_MS > 0
+    if (keycode == KC_AP2_BT_UNPAIR) {
+        if (record->event.pressed) forward_reactive_keypress(record);
+        unpair_event(record);
         return false;
     }
 #endif
@@ -670,11 +754,11 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 ap2_led_cancel_blink();
                 return false;
 
+#if AP2_BLE_UNPAIR_HOLD_MS <= 0
             case KC_AP2_BT_UNPAIR:
-                annepro2_ble_unpair();
-                annepro2_ble_disconnect();
-                ap2_led_cancel_blink();
+                unpair_now(record->event.key.row, record->event.key.col);
                 return false;
+#endif
 
             case KC_AP_LED_OFF:
                 leds_switch(false);

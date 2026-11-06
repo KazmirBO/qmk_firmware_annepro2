@@ -1,3 +1,19 @@
+/* Copyright 2026 KazmirBO
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include QMK_KEYBOARD_H
 
 enum anne_pro_layers {
@@ -6,6 +22,7 @@ enum anne_pro_layers {
     FN2,
 };
 
+// clang-format off
 const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     [BASE] = LAYOUT_60_ansi(
         KC_ESC,           KC_1,    KC_2,    KC_3, KC_4, KC_5, KC_6,   KC_7, KC_8, KC_9,    KC_0,             KC_MINS,          KC_EQL,        KC_BSPC,
@@ -23,18 +40,19 @@ const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
         _______, _______, _______,                            KC_ENT,                    _______, _______, MO(FN2), _______
     ),
 
-    /* KC_AP2_BT_UNPAIR (40 05) deletes the bonds of all four slots, so it is not bound next to the slot keys.
-     * Pairing a slot again replaces only the bond of that slot. RM_SPDU sets the speed of the rgb_matrix effect
+    /* KC_AP2_BT_UNPAIR (40 05) deletes the bonds of all four slots, so it acts only after being held for 3 s
+     * (AP2_BLE_UNPAIR_HOLD_MS). Pairing a slot again replaces only the bond of that slot. RM_SPDU sets the speed of the rgb_matrix effect
      * (Shift: slower); KC_AP_LED_SPEED would only set the speed of the LED MCU's own profiles, which do not run while
      * rgb_matrix drives the LEDs. */
     [FN2] = LAYOUT_60_ansi(
-        QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, XXXXXXX,          KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, RM_SPDU,
+        QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, KC_AP2_BT_UNPAIR, KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, RM_SPDU,
         _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
         _______, _______,    _______,    _______,    _______,    _______,          _______,    _______, _______, _______,       _______,       _______,       _______,
         _______,             _______,    _______,    _______,    _______,          _______,    _______, _______, _______,       _______,       _______,       _______,
         _______, _______,    _______,                                              _______,                      _______,       MO(FN1),       MO(FN2),       _______
     ),
 };
+// clang-format on
 
 uint16_t get_tapping_term(uint16_t keycode, keyrecord_t *record) {
     if (keycode == LT(FN1, KC_CAPS)) {
@@ -51,9 +69,15 @@ void keyboard_post_init_user(void) {
 
 layer_state_t layer_state_set_user(layer_state_t state) {
     switch (get_highest_layer(state)) {
-        case FN1: ap2_led_set_foreground_color(0x00, 0xff, 0x00); break;
-        case FN2: ap2_led_set_foreground_color(0x00, 0xff, 0xdd); break;
-        default: ap2_led_reset_foreground_color(); break;
+        case FN1:
+            ap2_led_set_foreground_color(0x00, 0xff, 0x00);
+            break;
+        case FN2:
+            ap2_led_set_foreground_color(0x00, 0xff, 0xdd);
+            break;
+        default:
+            ap2_led_reset_foreground_color();
+            break;
     }
     return state;
 }

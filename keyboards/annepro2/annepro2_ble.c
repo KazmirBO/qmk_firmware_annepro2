@@ -23,6 +23,13 @@
 #include "host_driver.h"
 #include "report.h"
 
+#ifndef AP2_BLE_PAIR_TIMEOUT_MS
+#    define AP2_BLE_PAIR_TIMEOUT_MS 60000
+#endif
+#ifndef AP2_BLE_CONNECT_TIMEOUT_MS
+#    define AP2_BLE_CONNECT_TIMEOUT_MS 6000
+#endif
+
 /* -------------------- Static Function Prototypes -------------------------- */
 static uint8_t ap2_ble_leds(void);
 static void    ap2_ble_mouse(report_mouse_t *report);
@@ -33,9 +40,7 @@ static void ap2_ble_switch_ble_driver(void);
 static void ble_send(uint8_t cmd, uint8_t sub, const void *data, uint8_t n);
 
 /* -------------------- Static Local Variables ------------------------------ */
-static host_driver_t ap2_ble_driver = {
-    ap2_ble_leds, ap2_ble_keyboard, NULL, ap2_ble_mouse, ap2_ble_extra
-};
+static host_driver_t ap2_ble_driver = {ap2_ble_leds, ap2_ble_keyboard, NULL, ap2_ble_mouse, ap2_ble_extra};
 
 /*
  * BLE MCU packet format (UART on SD1):
@@ -78,41 +83,55 @@ enum {
 #define BLE_TX_DATA_MAX 33 /* the longest data: the serial number (id + 32 characters) */
 
 /* Send an array as the data, checked against the frame buffer of ble_send() at compile time. */
-#define BLE_SEND_ARRAY(cmd, sub, array)                                                  \
-    do {                                                                                 \
+#define BLE_SEND_ARRAY(cmd, sub, array)                                                   \
+    do {                                                                                  \
         _Static_assert(sizeof(array) <= BLE_TX_DATA_MAX, "too much data for ble_send()"); \
-        ble_send(cmd, sub, array, sizeof(array));                                        \
+        ble_send(cmd, sub, array, sizeof(array));                                         \
     } while (0)
 
 /* 02 01 02 lets the BLE MCU leave its bootloader; the BLE application ignores it. Same frame as the stock firmware. */
 static const uint8_t ble_mcu_wakeup[11] = {
-    0x7b, 0x10, 0x53, 0x10, 0x03, 0x00, 0x00, 0x7d,
-    0x02, 0x01, 0x02,  /* FW, IapMode, flag=normal(0x02) */
+    0x7b, 0x10, 0x53, 0x10, 0x03, 0x00, 0x00, 0x7d, 0x02, 0x01, 0x02, /* FW, IapMode, flag=normal(0x02) */
 };
 
 static const uint8_t ble_mcu_bootload[11] = {
-    0x7b, 0x10, 0x51, 0x10, 0x03, 0x00, 0x00, 0x7d,
-    0x02, 0x01, 0x01,  /* FW, IapMode, flag=IAP(0x01) */
+    0x7b, 0x10, 0x51, 0x10, 0x03, 0x00, 0x00, 0x7d, 0x02, 0x01, 0x01, /* FW, IapMode, flag=IAP(0x01) */
 };
 
 static host_driver_t *last_host_driver = NULL;
 #ifdef NKRO_ENABLE
 static bool lastNkroStatus = false;
-#endif  // NKRO_ENABLE
+#endif // NKRO_ENABLE
 
 /* Caps Lock state of the BLE host, kept up to date in USB mode too, so that it is right when the reports go back to
  * a host that stayed connected. */
 static bool ble_capslock;
 /* Slot chosen last (-1: none since start), to tell a different host from the same one. */
 static int8_t ble_slot = -1;
-/* Pairing was started and no host has connected since. */
+/* Pairing was started and no host has connected since. The BLE MCU advertises for pairing for 60 s and reports nothing
+ * when that ends, so the flag is dropped after AP2_BLE_PAIR_TIMEOUT_MS, or a later, unrelated connection would move the
+ * reports to Bluetooth. */
 static bool pair_pending;
+/* A connect command moved the reports from a USB host to Bluetooth and no host has connected since. The BLE MCU advertises
+ * for 5 s and reports nothing when that ends, so after AP2_BLE_CONNECT_TIMEOUT_MS (0: never) the reports go back to the
+ * USB host instead of staying on a link that never came up. */
+static bool connect_pending;
+/* Start of the pairing or of the connect attempt, whichever flag is set (never both), as a 16-bit timer: RAM is short on
+ * the C15. */
+static uint16_t ble_timer;
+_Static_assert(AP2_BLE_PAIR_TIMEOUT_MS < 0x10000 && AP2_BLE_CONNECT_TIMEOUT_MS < 0x10000, "the BLE timeouts are 16-bit");
+/* Slot of the last annepro2_ble_broadcast() (-1: none). */
+static int8_t broadcast_last = -1;
 
 /* -------------------- Public Function Implementation ---------------------- */
 
-void annepro2_ble_bootload(void) { sdWrite(&SD1, ble_mcu_bootload, sizeof(ble_mcu_bootload)); }
+void annepro2_ble_bootload(void) {
+    sdWrite(&SD1, ble_mcu_bootload, sizeof(ble_mcu_bootload));
+}
 
-void annepro2_ble_startup(void) { sdWrite(&SD1, ble_mcu_wakeup, sizeof(ble_mcu_wakeup)); }
+void annepro2_ble_startup(void) {
+    sdWrite(&SD1, ble_mcu_wakeup, sizeof(ble_mcu_wakeup));
+}
 
 void annepro2_ble_send_battery(uint16_t raw) {
     const uint8_t data[] = {raw & 0xff, raw >> 8};
@@ -124,9 +143,13 @@ void annepro2_ble_request_version(void) {
     ble_send(BLE_CMD_GLOBAL, BLE_GLOBAL_VERSION, &data, 1);
 }
 
-bool annepro2_ble_is_active(void) { return host_get_driver() == &ap2_ble_driver; }
+bool annepro2_ble_is_active(void) {
+    return host_get_driver() == &ap2_ble_driver;
+}
 
-void annepro2_ble_set_capslock(bool on) { ble_capslock = on; }
+void annepro2_ble_set_capslock(bool on) {
+    ble_capslock = on;
+}
 
 /* A host connected (20 0c, sent twice per connection). After pairing, the reports follow it to Bluetooth unless a USB
  * host is in use (also a sleeping one), so that a keyboard on battery can be used as soon as the new host pairs. The
@@ -135,8 +158,9 @@ void annepro2_ble_set_capslock(bool on) { ble_capslock = on; }
  * host can write that report, so the reset cannot hide a 20 07 of the same connection (docs/05-ble.md). */
 void annepro2_ble_host_connected(void) {
     if (pair_pending && !annepro2_usb_host_in_use()) ap2_ble_switch_ble_driver();
-    pair_pending = false;
-    ble_capslock = false;
+    pair_pending    = false;
+    connect_pending = false;
+    ble_capslock    = false;
 }
 
 #ifdef AP2_BLE_SERIAL
@@ -171,23 +195,24 @@ void annepro2_ble_send_serial(void) {
 void annepro2_ble_pair(uint8_t port) {
     if (port > 3) port = 3;
     ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
-    ble_capslock = false; /* a new host: its state is unknown until it writes its LED report */
-    ble_slot     = port;
-    pair_pending = true;
+    ble_capslock    = false; /* a new host: its state is unknown until it writes its LED report */
+    ble_slot        = port;
+    pair_pending    = true;
+    ble_timer       = timer_read();
+    connect_pending = false; /* the pairing command replaced the connect attempt, the reports stay where they are */
 }
 
 /* Without AP2_BLE_SLOT_TAP_HOLD: the first press pairs (a new host may connect, so it resets like a pairing), a second
  * press on the same slot connects; it still advertises first, as before, but keeps the known state of that host. */
 void annepro2_ble_broadcast(uint8_t port) {
-    static int8_t lastBroadcast = -1;
     if (port > 3) port = 3;
-    if (lastBroadcast == port) {
+    if (broadcast_last == port) {
         ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
         annepro2_ble_connect(port);
     } else {
         annepro2_ble_pair(port);
     }
-    lastBroadcast = port;
+    broadcast_last = port;
 }
 
 void annepro2_ble_connect(uint8_t port) {
@@ -196,16 +221,37 @@ void annepro2_ble_connect(uint8_t port) {
     if (ble_slot != port) ble_capslock = false; /* another host; the same one keeps its known state */
     ble_slot     = port;
     pair_pending = false;
+#if AP2_BLE_CONNECT_TIMEOUT_MS > 0
+    /* Only a connect that itself moved the reports away from a USB host can fall back to it. */
+    connect_pending = host_get_driver() != &ap2_ble_driver && annepro2_usb_host_in_use();
+    ble_timer       = timer_read();
+#endif
     ap2_ble_switch_ble_driver();
+}
+
+/* Drop the pairing and connect flags whose time has run out. Returns true when the reports went back to the USB host. */
+bool annepro2_ble_task(void) {
+    if (pair_pending && timer_elapsed(ble_timer) >= AP2_BLE_PAIR_TIMEOUT_MS) pair_pending = false;
+    if (connect_pending && timer_elapsed(ble_timer) >= AP2_BLE_CONNECT_TIMEOUT_MS) {
+        connect_pending = false;
+        if (annepro2_usb_host_in_use() && annepro2_ble_is_active()) {
+            annepro2_ble_disconnect();
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Send the reports to the BLE MCU without a slot command, as the stock firmware does when its Bluetooth switch is
  * turned on. A host that is still connected gets them at once. After a disconnect the BLE MCU does not advertise on its
  * own; it starts advertising when the next report arrives (5 s for its bonded hosts, 60 s without bonds). */
-void annepro2_ble_use_driver(void) { ap2_ble_switch_ble_driver(); }
+void annepro2_ble_use_driver(void) {
+    ap2_ble_switch_ble_driver();
+}
 
 void annepro2_ble_disconnect(void) {
-    pair_pending = false;
+    pair_pending    = false;
+    connect_pending = false;
     if (host_get_driver() != &ap2_ble_driver) {
         return;
     }
@@ -219,8 +265,11 @@ void annepro2_ble_disconnect(void) {
 
 void annepro2_ble_unpair(void) {
     ble_send(BLE_CMD_BLE, BLE_BLE_UNPAIR, NULL, 0);
-    ble_capslock = false;
-    ble_slot     = -1;
+    ble_capslock    = false;
+    ble_slot        = -1;
+    pair_pending    = false;
+    connect_pending = false;
+    broadcast_last  = -1;
 }
 
 /* ------------------- Static Function Implementation ----------------------- */
