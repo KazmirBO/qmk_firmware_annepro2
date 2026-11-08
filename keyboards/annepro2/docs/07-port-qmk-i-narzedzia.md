@@ -61,20 +61,20 @@ Odpowiednik `KC_BL_BATT` z oryginału. Mierzy baterię i pokazuje poziom (liczon
 
 ## 5. Buildy
 
-Buildy z `6c03dfe813` z 2026-10-27, bez ostrzeżeń kodu:
+Buildy z `c0a2cfcccb` z 2026-11-06 (kod bez zmian w `0b45b60286`; drzewo zawiera `upstream/master` `f5db962110`), bez ostrzeżeń kodu, po `make clean`:
 
 | Cel | Rozmiar | SHA-256 |
 |---|---|---|
-| `c18:kazmir_bo` | 31 652 B | `305978fabbef0ed42807dc278b1a1919c50e6f899f0f33bf15e101dee46db21c` |
-| `c15:kazmir_bo` | 30 392 B | `4ab60c47a8b6863fbfcaffbb219262a557cd1a20de84325f46180a7af8696137` |
-| `c18:default` | 37 612 B | `1cbf621c98e703339ca7d765d91c19d6bfa484833ace5692541998a2fd7df3cb` |
-| `c15:default` | 37 612 B | `6c6e983a5db11bee234738b45d1bde4591e9b3c84d7fb669fd113d796a563746` |
-| `c18:default` z `-DAP2_BT_SWITCH` | 37 804 B | `30e7f9764b68f76609fbfc9e2d42c2a216f36e90ec0bd9a4d7fbe29a49ad452b` |
-| `c18:default` z `-DAP2_BLE_SERIAL` | 37 740 B | `14792de6d772b28bb5e5f0145550d3968fc02fadd1e41464f9f64c19c21e799c` |
+| `c18:kazmir_bo` | 32 840 B | `a0f129390e91f270846867be0f4744a83ddcf09189171073b0014bf0333e1e17` |
+| `c15:kazmir_bo` | 31 252 B | `f4e2a7d61cb7bcab1eea607033929c5201085a6ab0c51f2e2f014281a4f77a11` |
+| `c18:default` | 39 436 B | `21a4baa7e2c8ee0ebdc197dc0f10af20e332982b2674ed4aedeb7aba2448132d` |
+| `c15:default` | 39 436 B | `71b300b99ec9c0f5a42d56f702bfe950f41ca1d7bf66868da14b0d251b4181d1` |
+| `c18:default` z `-DAP2_BT_SWITCH` | 39 608 B | `59a66d4b8eb584bedeae51dbc7a2872f4cce27959b113a54b2f4d846cebeeed9` |
+| `c18:default` z `-DAP2_BLE_SERIAL` | 39 540 B | `e07961e148dc3f7db4c9b350e59e8889337dffb9804fd2a858dbdf7e4c77d01a` |
 
-`c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18). Po scaleniu z upstream (`f3317b7ece`) cztery cele `c18`/`c15` z keymapami `kazmir_bo` i `default` dają bajt w bajt te same pliki.
+Warianty z flagami budowano jako `make annepro2/c18:default EXTRAFLAGS=-DAP2_BT_SWITCH` (analogicznie `-DAP2_BLE_SERIAL`). `c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18).
 
-Build `c18:kazmir_bo` jest powtarzalny: daje bajt w bajt ten sam plik co obraz w `do-wgrania/` (instrukcja wgrania i wcześniejsze wersje do wycofania są w `do-wgrania/README.md`).
+Build `c18:kazmir_bo` jest powtarzalny: powtórny build po `make clean` daje bajt w bajt ten sam plik, a obraz wgrany na klawiaturę 2026-11-06 (`annepro2_tools --boot`, 32 840 B zapisane, "Flash complete") ma tę samą sumę. Obrazu z `do-wgrania/` tym razem nie porównywano. Wgranie nie jest jeszcze testem: punkty z `08-testy-na-sprzecie.md` §2 (limity czasu połączenia, unpair z klawiatury) pozostają niesprawdzone.
 
 ## 6. Historia zmian w forku
 
