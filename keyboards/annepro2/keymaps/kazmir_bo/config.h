@@ -18,7 +18,8 @@
 
 #define USB_POLLING_INTERVAL_MS 1
 
-#define MATRIX_IO_DELAY 1
+/* MATRIX_IO_DELAY stays at QMK's 30 us. This keymap used to set 1: while wait_us() slept a whole 1 ms tick per row that
+ * changed nothing, but with WAIT_US_TIMER (c18/config.h) it would leave the columns 1 us to go high again. */
 /* A key change counts once it has been stable for 20 ms (DEBOUNCE_TYPE in rules.mk); this hides the W switch
  * chatter, at the cost of 20 ms more latency on press and release. */
 #define DEBOUNCE 20
