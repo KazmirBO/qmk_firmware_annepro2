@@ -1,6 +1,6 @@
 # Port QMK i narzędzia względem oryginału
 
-Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, katalog `keyboards/annepro2/`; od `f3317b7ece` scalony z `qmk/qmk_firmware` `master` `180f394b48` z 2026-10-16) i lokalna gałąź `feature/ble-stock-parity` repozytorium `AnnePro2-Tools` (`b5c02bc`, niepublikowana). Opis zachowania oryginału jest w `03-mcu.md` i `05-ble.md`; tutaj jest tylko to, co port robi, czym różni się od oryginału i gdzie to jest w kodzie. Wszystkie twierdzenia o kodzie portu sprawdzono w kodzie i buildach z 2026-10-27; wyniki testów na klawiaturze są w `08-testy-na-sprzecie.md`.
+Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, katalog `keyboards/annepro2/`; od `f3317b7ece` scalony z `qmk/qmk_firmware` `master` `180f394b48` z 2026-10-16) i lokalna gałąź `feature/ble-stock-parity` repozytorium `AnnePro2-Tools` (`b5c02bc`, niepublikowana). Opis zachowania oryginału jest w `03-mcu.md` i `05-ble.md`; tutaj jest tylko to, co port robi, czym różni się od oryginału i gdzie to jest w kodzie. Wszystkie twierdzenia o kodzie portu sprawdzono w kodzie i buildach z 2026-10-27; wyniki testów na klawiaturze są w `08-testy-na-sprzecie.md`. Uzupełnienie z 2026-11-13: §1, §3, §5 i §6 opisują też commit `3fad67e4b0` (na `6f3c9160a4`) z poprawkami z przeglądu kodu; obraz `c18:kazmir_bo` wgrano 2026-11-13 (§5).
 
 ## 1. Funkcje Bluetooth portu
 
@@ -11,14 +11,14 @@ Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, ka
 | Caps Lock hosta po BLE | `20 07` od BLE trafia do LED | `20 07` ustawia stan diody Caps Lock zwracany przez sterownik BLE | `ble_handle_frame()`, `ap2_ble_leds()` |
 | Połączenie | `20 0c` od BLE gasi wskaźnik slotu | `20 0c` gasi miganie i zleca natychmiastową wysyłkę baterii | `ble_handle_frame()` |
 | Klawisze slotów bez opcji | - | naciśnięcie wysyła `40 01 <slot>` (parowanie); drugie naciśnięcie tego samego slotu dodatkowo `40 04 <slot>` i przełącza raporty na BLE | `annepro2_ble_broadcast()` |
-| Klawisze slotów z `AP2_BLE_SLOT_TAP_HOLD` | krótko `40 04`, przytrzymanie 5 s `40 01` | krótko `40 04`, przytrzymanie `AP2_BLE_SLOT_HOLD_MS` (domyślnie 500 ms; 5000 daje czas oryginału) `40 01`; w obu przypadkach raporty od razu idą do BLE, slot miga na niebiesko | `slot_event()`, `slot_tick()`, `annepro2_ble_pair()`, `annepro2_ble_connect()` |
+| Klawisze slotów z `AP2_BLE_SLOT_TAP_HOLD` | krótko `40 04`, przytrzymanie 5 s `40 01` | krótko `40 04`, przytrzymanie `AP2_BLE_SLOT_HOLD_MS` (domyślnie 500 ms; 5000 daje czas oryginału) `40 01`. Tap od razu przełącza raporty na BLE. Przytrzymanie zostawia je tam, gdzie były (host USB działa dalej), a po połączeniu nowego hosta (`20 0c`) przenosi je na BLE tylko wtedy, gdy żaden host USB nie jest w użyciu. Slot miga na niebiesko, a miganie jest anulowane na tym samym klawiszu (do 2026-11-13 anulowanie wskazywało klawisz 0 i gasiło kolor warstwy na Esc, bo układ LED po zakończeniu migania czyści maskę wskazanego klawisza) | `slot_event()`, `slot_tick()`, `annepro2_ble_pair()`, `annepro2_ble_connect()` |
 | Przełącznik Bluetooth (`AP2_BT_SWITCH`) | PC10 z podciąganiem w dół jest jedynym źródłem wyboru wyjścia: stan wysoki USB, niski Bluetooth; odczyt bez odszumiania, wyjście ustawiane z poziomu pinu przy każdym odczycie | `AP2_BT_SWITCH_PIN` (domyślnie `C10`) z podciąganiem w dół; wyjście wybiera tylko zmiana stanu stabilna przez `AP2_BT_SWITCH_DEBOUNCE_MS` (50 ms), więc `KC_AP2_USB` i klawisze slotów działają pomiędzy zmianami; pierwszy odczyt jest stosowany w pierwszym skanie macierzy; On przełącza raporty na BLE bez ramki slotu, Off wraca do USB i gasi wskaźnik | `bt_switch_task()`, `annepro2_ble_use_driver()`, `annepro2_ble_disconnect()` |
 | Bateria (`AP2_BLE_BATTERY`, tylko C18) | MCU mierzy baterię, ale nie wysyła jej do BLE, więc host widzi stałe 100 % (wartość początkową BLE) | ADC kanał 7 na PA7 skonfigurowany jak w oryginale (`HCLK/64`, wyzwalanie programowe, 12 bitów, średnia z 8 próbek bez skrajnych); ramka `01 05 <lo> <hi>` po handshake, po `20 0c` i co `AP2_BATTERY_INTERVAL_MS` (60 s); wysyłana jest największa z ostatnich `AP2_BATTERY_HISTORY` (5) wartości, bo BLE tylko obniża poziom | `annepro2_battery.c` |
 | Numer seryjny BLE (`AP2_BLE_SERIAL`, tylko C18) | po każdym `01 03` od BLE wysyła `01 10` z 32 znakami hex UDID, ale bez bajtu `id`, więc BLE ramkę odrzuca i numer seryjny DIS zostaje domyślny | po każdym `01 03` od BLE wysyła `01 10 02` i 32 znaki hex (wielkie litery) UDID z rekordu oryginału we flash `0x3E08`; przy pustym rekordzie (same 0x00 albo 0xFF) nic nie wysyła; BLE trzyma wartość tylko w RAM | `annepro2_ble_send_serial()`, `AP2_DEVICE_RECORD_ADDR` w `c18/config.h` |
 | Klawisze jasności po BLE | bity 6 i 7 raportu multimediów (usages 0x6F i 0x70) | `BRIGHTNESS_UP` 0x40, `BRIGHTNESS_DOWN` 0x80 | `CONSUMER2AP2()` w `annepro2_ble.c` |
 | Powrót do USB | - | `KC_AP2_USB` przywraca poprzedni sterownik hosta (bez ramki do BLE) | `annepro2_ble_disconnect()` |
-| Usunięcie parowań | ObinsKit `deleteBleHost` (`40 05`) | `KC_AP2_BT_UNPAIR` po przytrzymaniu `AP2_BLE_UNPAIR_HOLD_MS` (3 s; 0 = od razu) wysyła `40 05`, które usuwa bondy wszystkich czterech slotów | `annepro2_ble_unpair()` |
-| Limity czasu połączenia | brak: układ BLE nie zgłasza końca rozgłaszania (5 s przy łączeniu, 60 s przy parowaniu) ani rozłączenia (`05-ble.md` §5 i `05-ble.md` §7) | tap slotu, który przełączył raporty z hosta USB na BLE, wraca do USB, jeśli po `AP2_BLE_CONNECT_TIMEOUT_MS` (6 s; 0 = wyłączone) nie przyjdzie `20 0c`; flaga parowania wygasa po `AP2_BLE_PAIR_TIMEOUT_MS` (60 s) [I] | `annepro2_ble_task()` |
+| Usunięcie parowań | ObinsKit `deleteBleHost` (`40 05`) | `KC_AP2_BT_UNPAIR` po przytrzymaniu `AP2_BLE_UNPAIR_HOLD_MS` (3 s; 0 = od razu) wraca na sterownik USB, a potem wysyła `40 05` i `40 02`. Samo `40 05` przy połączonym hoście tylko zapisuje żądanie, a bondy wszystkich czterech slotów znikają dopiero po zakończeniu łącza (`05-ble.md` §8), więc `40 02` kończy je od razu; bez połączenia `40 02` wyłącza rozgłaszanie. Powrót na USB idzie pierwszy, bo wysyłany przy nim pusty raport sam uruchamia rozgłaszanie w układzie BLE (`05-ble.md` §6) | `unpair_now()`, `annepro2_ble_unpair()` |
+| Limity czasu połączenia | brak: układ BLE nie zgłasza końca rozgłaszania (5 s przy łączeniu, 60 s przy parowaniu) ani rozłączenia (`05-ble.md` §5 i `05-ble.md` §7) | tap slotu, który przełączył raporty z hosta USB na BLE, wraca do USB, jeśli po `AP2_BLE_CONNECT_TIMEOUT_MS` (6 s; 0 = wyłączone) nie przyjdzie `20 0c`; flaga parowania wygasa po `AP2_BLE_PAIR_TIMEOUT_MS` (60 s) [I]. Ponowiony tap przed połączeniem hosta zachowuje powrót na USB i liczy czas od nowa, a przytrzymanie slotu (parowanie) w trakcie takiej próby od razu oddaje raporty hostowi USB (do 2026-11-13 oba przypadki zostawiały raporty na BLE bez limitu) | `annepro2_ble_connect()`, `annepro2_ble_pair()`, `annepro2_ble_task()` |
 | Wejście w IAP | sygnatura `0xfab2` pod `0x20001ffc` i reset | LED w IAP, do BLE ramka `7b 10 51 10 03 00 00 7d 02 01 01`, sygnatura `0xfab2` pod `0x20001ffc`, reset | `bootloader_jump()` |
 
 Ramki do BLE mają nagłówek `7b 12 53 00 <len> 00 00 7d`; `40 01` i `40 04` niosą jeden bajt danych (numer slotu 0-3), zgodnie z polem długości. Ramki grupy `0x02` (budząca `02 01 02` i `02 01 01` przed wejściem w IAP) mają, jak w oryginale, typ `0x10` i bajt 3 równy `0x10`: `7b 10 53 10 03 00 00 7d 02 01 02`. Aplikacja BLE ignoruje ramkę budzącą; ma ona znaczenie tylko dla bootloadera BLE [I].
@@ -50,6 +50,8 @@ Odpowiednik `KC_BL_BATT` z oryginału. Mierzy baterię i pokazuje poziom (liczon
 - Warstwa `FN2`: sloty BLE na `1`-`4`, `KC_AP2_USB` na `6`, `KC_AP2_BATT` na `8`. `KC_AP2_BT_UNPAIR` na `5`; działa dopiero po przytrzymaniu 3 s, bo kasuje bondy wszystkich slotów (ponowne parowanie slotu zastępuje tylko jego bond).
 - Warstwa `FN1`: jasność ekranu na `M` (w dół) i `,` (w górę).
 - Caps Lock przytrzymany działa jako `FN1` po 250 ms (`CAPS_FN1_TAPPING_TERM`); pozostałe klawisze mają `TAPPING_TERM` 100 ms.
+- Debounce: `sym_defer_pk`, 20 ms na obu zboczach (`a7eb48fa3b`, `7c6dd49603`), z powodu drgań przełącznika W.
+- Na C15 keymapa nie włącza efektu Pixel Flow (`KEYBOARD_annepro2_c15` w `config.h`): po `6f3c9160a4` brakowało tam 36 B RAM, a efekt trzyma 183 B stanu. C18 ma komplet efektów.
 
 ## 4. AnnePro2-Tools (lokalna gałąź `feature/ble-stock-parity`)
 
@@ -61,20 +63,24 @@ Odpowiednik `KC_BL_BATT` z oryginału. Mierzy baterię i pokazuje poziom (liczon
 
 ## 5. Buildy
 
-Buildy z `c0a2cfcccb` z 2026-11-06 (kod bez zmian w `0b45b60286`; drzewo zawiera `upstream/master` `f5db962110`), bez ostrzeżeń kodu, po `make clean`:
+Buildy z `3fad67e4b0` z 2026-11-13 (drzewo zawiera `upstream/master` `3329239097`; zbudowane z drzewa roboczego o tej samej treści źródeł, przed commitem), bez ostrzeżeń kodu, po `make clean`:
 
 | Cel | Rozmiar | SHA-256 |
 |---|---|---|
-| `c18:kazmir_bo` | 32 840 B | `a0f129390e91f270846867be0f4744a83ddcf09189171073b0014bf0333e1e17` |
-| `c15:kazmir_bo` | 31 252 B | `f4e2a7d61cb7bcab1eea607033929c5201085a6ab0c51f2e2f014281a4f77a11` |
-| `c18:default` | 39 436 B | `21a4baa7e2c8ee0ebdc197dc0f10af20e332982b2674ed4aedeb7aba2448132d` |
-| `c15:default` | 39 436 B | `71b300b99ec9c0f5a42d56f702bfe950f41ca1d7bf66868da14b0d251b4181d1` |
-| `c18:default` z `-DAP2_BT_SWITCH` | 39 608 B | `59a66d4b8eb584bedeae51dbc7a2872f4cce27959b113a54b2f4d846cebeeed9` |
-| `c18:default` z `-DAP2_BLE_SERIAL` | 39 540 B | `e07961e148dc3f7db4c9b350e59e8889337dffb9804fd2a858dbdf7e4c77d01a` |
+| `c18:kazmir_bo` | 32 992 B | `4b820d9082bd1ff0f4f453204f709935ec4672266487e690c804e89f88a099e7` |
+| `c15:kazmir_bo` | 31 048 B | `a5eae9d2feb247eec60f92cbbb7b2aa838eede6efbd5dac57e14fd47ec709b4a` |
+| `c18:default` | 35 044 B | `b85e77235ba470edbe7c9e89657a20a3b026f6da38a954d15b67ebd595f7c378` |
+| `c15:default` | 35 044 B | `6ea9cc4b111ba00cc753053fd8e665dbf1fd650bd7986247d6194d7f7866a735` |
+| `c18:default` z `-DAP2_BT_SWITCH` | 35 216 B | `8387548b1feee8f4605fd888954abf078571afa656660e6a21fc03f77f5d6b5f` |
+| `c18:default` z `-DAP2_BLE_SERIAL` | 35 152 B | `7d59dccdcb839cfcd66e8b8e177cf35328c602f626b55c78e7b1f88b6bd9c4ee` |
 
 Warianty z flagami budowano jako `make annepro2/c18:default EXTRAFLAGS=-DAP2_BT_SWITCH` (analogicznie `-DAP2_BLE_SERIAL`). `c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18).
 
-Build `c18:kazmir_bo` jest powtarzalny: powtórny build po `make clean` daje bajt w bajt ten sam plik, a obraz wgrany na klawiaturę 2026-11-06 (`annepro2_tools --boot`, 32 840 B zapisane, "Flash complete") ma tę samą sumę. Obrazu z `do-wgrania/` tym razem nie porównywano. Wgranie nie jest jeszcze testem: punkty z `08-testy-na-sprzecie.md` §2 (limity czasu połączenia, unpair z klawiatury) pozostają niesprawdzone.
+Build `c18:kazmir_bo` jest powtarzalny: build przed `make clean` i po nim dał bajt w bajt ten sam plik. Obraz `c18:kazmir_bo` wgrano na klawiaturę 2026-11-13 (`annepro2_tools --boot`, 32 992 B zapisane, "Flash complete"), po czym zgłosiła się po USB jako `ac20:8009` „Anne Pro 2 C18 (QMK)”. Wgranie nie jest jeszcze testem: punkty do sprawdzenia na klawiaturze są w `08-testy-na-sprzecie.md` §2.
+
+Scalenia upstreamu zmieniają obrazy także bez zmian w porcie. Sam `6f3c9160a4` (bez poprawek z 2026-11-13) daje `c18:kazmir_bo` 32 840 B, `960d8913bc9c577044ce34957d76205e2ba0a214df2602cd844c8dc55b2ae2b8`, a `c15:kazmir_bo` się na nim nie linkuje (36 B ponad RAM). Obrazy keymap `default` zmalały o około 4,4 kB, najpewniej dlatego, że upstream usunął z `info.json` efekty `typing_heatmap` i `digital_rain` [I].
+
+Poprzedni zestaw, z `c0a2cfcccb` z 2026-11-06 (drzewo z `upstream/master` `f5db962110`): `c18:kazmir_bo` 32 840 B `a0f129390e91f270846867be0f4744a83ddcf09189171073b0014bf0333e1e17`, `c15:kazmir_bo` 31 252 B `f4e2a7d61cb7bcab1eea607033929c5201085a6ab0c51f2e2f014281a4f77a11`, `c18:default` 39 436 B `21a4baa7e2c8ee0ebdc197dc0f10af20e332982b2674ed4aedeb7aba2448132d`, `c15:default` 39 436 B `71b300b99ec9c0f5a42d56f702bfe950f41ca1d7bf66868da14b0d251b4181d1`. Obraz `c18:kazmir_bo` z tego zestawu wgrano na klawiaturę 2026-11-06 (`annepro2_tools --boot`, 32 840 B zapisane, "Flash complete").
 
 ## 6. Historia zmian w forku
 
@@ -98,6 +104,27 @@ Build `c18:kazmir_bo` jest powtarzalny: powtórny build po `make clean` daje baj
 | `f698d45e48` | 2026-10-27 | dokumentacja przebudowana po pełnej weryfikacji |
 | `6c03dfe813` | 2026-10-27 | wskaźnik baterii z krzywą BLE, `AP2_BLE_SERIAL`, ramka budząca jak w oryginale, `AP2_BT_SWITCH` w `kazmir_bo` tylko na C18, komentarze zgodne z weryfikacją |
 | `f3317b7ece` | 2026-10-27 | scalenie `qmk/qmk_firmware` `master` (`180f394b48`); jedyna zmiana upstream od bazy `7a1bbf37c5` to plik blokady generatora dokumentacji |
+| `6a53fe3a45` | 2026-10-24 | utwardzenie łącza BLE, Bluetooth działa przy uśpionym hoście USB (gałąź PR #2, w `master` od 2026-11-01) |
+| `01e763797a` | 2026-10-24 | filtr pierwszego poziomu baterii i krzywa układu BLE (PR #2) |
+| `48d6b81715` | 2026-10-24 | pozostałe martwe opcje keymapy `kazmir_bo` (PR #2) |
+| `56d39ba7b1` | 2026-10-24 | opis parowania, baterii i uśpienia USB w `readme.md` (PR #2) |
+| `55bb2a154b` | 2026-11-01 | poprawki builda i przeglądu zmiany uśpienia USB (PR #2) |
+| `f459a43171` | 2026-11-01 | UART układu LED nie blokuje skanu macierzy (PR #2) |
+| `c972dc008a` | 2026-11-01 | poprawki po czwartym przeglądzie (PR #2, scalony jako `d4c4b842d4`) |
+| `b3ebcc6e1e` | 2026-11-01 | poprawki po przeglądzie `master` (PR #3, `c1d9a582db`) |
+| `f649e362a1` | 2026-11-02 | poprawki po przeglądzie C18 (PR #4, `134176b7df`) |
+| `a7eb48fa3b` | 2026-11-02 | debounce `kazmir_bo` na obu zboczach, 25 ms |
+| `81cf9f0ccf` | 2026-11-02 | scalenie `upstream/master` (`f5db962110`) |
+| `7c6dd49603` | 2026-11-03 | debounce `kazmir_bo` 20 ms |
+| `d0c9fab01d` | 2026-11-03 | dokumentacja: mapa fabryczna, matryca i wskaźniki LED, sen, CRC obrazu BLE |
+| `c0a2cfcccb` | 2026-11-06 | limity czasu łączenia i parowania, unpair po przytrzymaniu, pingi układu BLE bez końca |
+| `0b45b60286` | 2026-11-06 | dokumentacja limitów i unpair, zmiana nazwy keymapy z `Kazmir_BO` na `kazmir_bo` |
+| `e83d5ef8a2` | 2026-11-08 | scalenie `upstream/master` (`d194c077ed`) |
+| `97d3db7e65` | 2026-11-08 | rozmiary i sumy buildów `c0a2cfcccb` w §5 |
+| `6f3c9160a4` | 2026-11-12 | scalenie `upstream/master` (`3329239097`); `ec8a1b6549` powiększa bufor USB EP0 z 2 do 64 B i usuwa z `info.json` efekty `typing_heatmap` i `digital_rain`; `c15:kazmir_bo` przestaje się linkować |
+| `3fad67e4b0` | 2026-11-13 | unpair kończy też łącze (`40 02` po `40 05`) i najpierw wraca na USB; anulowanie migania na właściwym klawiszu; powrót na USB zachowany po ponowionym tapie i przy parowaniu w trakcie próby łączenia; wskaźnik baterii zostawia rezerwę kolejki UART LED; `kazmir_bo` na C15 bez efektu Pixel Flow |
+
+Wiersze od `6a53fe3a45` do `97d3db7e65` dopisano 2026-11-13 na podstawie tytułów commitów (`git log`), bez ponownego czytania ich treści.
 
 Kolejna synchronizacja z upstream: `git fetch upstream` i `git merge upstream/master` (remote `upstream` wskazuje `https://github.com/qmk/qmk_firmware.git`).
 

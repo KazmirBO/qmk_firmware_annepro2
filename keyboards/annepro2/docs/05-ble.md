@@ -55,10 +55,10 @@ Tablica dyspozytora: `02-protokol.md` §5.3.
 
 | `sub` | Działanie [O] | Odpowiedź |
 |---|---|---|
-| 0x01 `<slot>` | parowanie: dla slotu < 4 zrywa bieżące połączenie albo wyłącza rozgłaszanie (`2:BF3D`), ustawia slot (`1:9C1A`), nazwę i dane rozgłaszania slotu (`1:F5AF`), tryb parowania (`X:0759` = 1) i rozgłaszanie 20 ms przez 60 s (`2:C9FD`) | 1 B = 0; slot ≥ 4: brak działania i odpowiedzi |
+| 0x01 `<slot>` | parowanie: dla slotu < 4 zrywa bieżące połączenie albo wyłącza rozgłaszanie (`2:BF3D`: w stanie 6 `2:9638` kończy łącze z powodem 0x13, w innym stanie parametr 0x305 = 0), ustawia slot (`1:9C1A`), nazwę i dane rozgłaszania slotu (`1:F5AF`), tryb parowania (`X:0759` = 1) i rozgłaszanie 20 ms przez 60 s (`2:C9FD`) | 1 B = 0; slot ≥ 4: brak działania i odpowiedzi |
 | 0x02 | w stanie połączonym zrywa łącze, w przeciwnym razie wyłącza rozgłaszanie; bez numeru slotu | brak |
 | 0x04 `<slot>` | łączenie: jak 0x01, ale tryb 0 i rozgłaszanie 20 ms przez 5 s (`2:C93D`); w tym trybie przyjmowany jest tylko bond o indeksie równym slotowi (§8) | 1 B = 0, także dla slotu ≥ 4 (bez działania) |
-| 0x05 | usuwa wszystkie bondy (`GAPBondMgr_SetParameter(0x409, 0)`); nie przyjmuje numeru slotu | 1 B = 0 |
+| 0x05 | usuwa wszystkie bondy (`GAPBondMgr_SetParameter(0x409, 0)`); nie przyjmuje numeru slotu. Przy aktywnym połączeniu tylko ustawia flagę `X:0807`, a bondy znikają dopiero po zakończeniu łącza (§8) | 1 B = 0 |
 | 0x0F | test: wysyła raport HID ID 1 (8 B) z `data[2]` w bajcie klawisza (`1:F189`) | brak |
 | 0x12 | liczba bondów (parametr 0x40E) | 1 B |
 | 0x13 | 10 B z niezapisanego bufora na stosie (niedokończona funkcja, zwraca śmieci) | 10 B |
@@ -144,6 +144,7 @@ Wszystkie cztery kopie nazwy to `AnnePro2`, a adres BD jest wspólny i pochodzi 
 
 - Po rozłączeniu rozgłaszanie nie startuje samo: `2:C3DD` woła `2:C99D` tylko przy ustawionym bicie 1 hidFlags, a hidFlags ma wartość 0x01 i nic jej nie zmienia [O]. Wyjątkiem jest parowanie zakończone statusem 4, po którym rusza `2:C9FD` [O]. Rozgłaszanie wznawia dopiero naciśnięcie klawisza (raport, §6) albo `40 01`/`40 04`.
 - Po upływie limitu rozgłaszanie się nie wznawia (GAPROLE_ADVERT_OFF_TIME = 0), a MCU nie dostaje żadnej ramki [O].
+- Włączenie rozgłaszania (parametr 0x305 w `2:9065`, tablica przypadków pod `2:907B`, kod `2:9100`) zapisuje flagę `X:1A9D`, a zdarzenie 0x0001 zadania GAPRole (`X:15DE`) ustawia tylko w stanach 1, 4 i 5 (`2:9145`-`2:915A`, `2:91C6`); wyłączenie woła `0:459D` tylko w stanach 2 i 5 [O]. W stanie 6 (połączony) samo włączenie niczego więc nie startuje. Po zakończeniu łącza obsługa `2:9D4D` ustawia stan 4, a przy powodzie 8 (limit nadzoru) stan 5, i zawsze ustawia zdarzenie 0x0001 (`2:9D74`-`2:9D7D`); obsługa tego zdarzenia (`2:9733`) rozgłasza, gdy flaga `X:1A9D` albo `X:160B` jest ustawiona [O]. Stąd `40 01` i `40 04` wysłane przy trwającym połączeniu działają tak: żądanie zakończenia łącza (`2:BF3D`), ustawienie slotu i parametrów, flaga rozgłaszania, a samo rozgłaszanie rusza po zakończeniu łącza, już z nowymi parametrami [O]. Tak fabryczny firmware przełącza się między hostami [I].
 - Parametry połączenia (`1:EE19`-`1:EE57`): aktualizacja włączona (0x310 = 1), interwał 9 × 1,25 ms = 11,25 ms (0x311, 0x312), latency 15 (0x313), timeout 4 s (0x314 = 400); żądanie idzie 4 s po połączeniu. To inne wartości niż statyczne PPCP (100-200 ms, latency 0, 10 s); co host przyjmie, pokaże dopiero `btmon` [O/N].
 - Polityka filtra rozgłaszania 0 przy każdym starcie; brak rozgłaszania kierowanego i LE Secure Connections [I]. Moc nadawania zmieniają tylko testy RF (`40 40`-`40 42`) [O].
 - Stos zawiera obsługę polecenia HCI 0xFC20 (`3:FBA5`, wołane z `3:CE52`): odpowiedź to zdarzenie 0x0420: `20 04 00`, 5 B danych i po 9 B na połączenie (`3:FBD9`-`3:FC4C`), a przy braku pamięci `20 04 07` (`3:FC5D`-`3:FC7A`) [O]. W TI BLE-Stack to `HCI_EXT_GET_CONNECTION_INFO` (`HCI_EXT_GetConnInfoCmd`) ze zdarzeniem `HCI_EXT_GET_CONNECTION_INFO_EVENT` 0x0420 [zewn., dokumentacja TI BLE-Stack 3.01, `hci_tl.h`]. Aplikacja go nie wysyła; to kod biblioteki [I].
@@ -167,7 +168,7 @@ Kod nie ustawia `KEY_DIST_LIST`, `KEYSIZE`, `OOB` ani `BOND_FAIL_ACTION`, więc 
   - w trybie łączenia przyjmowany jest tylko bond o indeksie równym slotowi; inny peer jest rozłączany, a rozgłaszanie wznawiane;
   - w trybie parowania nieznany peer jest przyjmowany; znany peer z innym indeksem jest odrzucany, jeśli jego slot ma stan 1, a w przeciwnym razie przyjmowany i staje się bieżącym slotem;
   - po każdym przyjętym połączeniu tryb wraca na 0.
-- `40 05` usuwa wszystkie bondy. Parowanie slotu od nowa zastępuje tylko bond tego slotu [I].
+- `40 05` usuwa wszystkie bondy, ale nie zawsze od razu. Przypadek 0x409 w `1:8359` (tablica pod `1:8375`, kod `1:84AF`) wymaga długości 0 i pyta o liczbę aktywnych połączeń (`0:4609`, `3:E055`): przy zerze kasuje bondy natychmiast (`0:50A7`, `1:946F`), w przeciwnym razie tylko ustawia flagę `X:0807` [O]. Flagę czyta `1:87EB` (wołane z `1:8DFB`): gdy nie ma już połączeń i flaga wynosi 1, kasuje bondy i zeruje flagę (`1:87F6`-`1:8805`) [O]. Połączony host zostaje więc po `40 05` połączony i sparowany, aż łącze się skończy; od razu kończy je `40 02`. Tak samo działa menedżer bondów w TI BLE-Stack (`GAPBOND_ERASE_ALLBONDS`) [zewn.]. Parowanie slotu od nowa zastępuje tylko bond tego slotu [I].
 - SNV (`4:8E19` zapis przez DMA do FWDATA, `4:8E83` kasowanie strony, `3:8AC3` kasowanie z kontrolą) [O]:
   - 0x02 i 0x03: lokalne IRK i SRK, po 16 B; 0x04: licznik podpisu, 4 B;
   - dla bonda `i` (0-9): 0x20+6i (14 B), 0x21+6i (27 B), 0x22+6i (27 B), 0x23+6i i 0x24+6i (po 16 B), 0x25+6i (4 B) oraz 0x70+i (18 B); przypisanie pól do kluczy (np. LTK) według struktur TI [I];

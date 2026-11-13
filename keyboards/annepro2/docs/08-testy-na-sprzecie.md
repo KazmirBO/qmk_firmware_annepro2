@@ -24,6 +24,12 @@ Co to potwierdza z analizy oryginału: format ramek, polecenia `40 01`, `40 04`,
 
 - Wersji `6c03dfe813` (2026-10-27) jeszcze nie wgrywano: ramki budzącej BLE w formacie oryginału, numeru seryjnego DIS z UDID (`AP2_BLE_SERIAL`) i wskaźnika baterii z krzywą BLE. Procedura w §3.1.
 - Limitów czasu połączenia i unpair z klawiatury (C18, jeszcze niewgrane): tap slotu bez sparowanego hosta wraca na USB po około 6 s; tap slotu ze znanym, włączonym hostem zostaje na BLE; `FN2` + `5` przytrzymane 3 s kasuje bondy (krótkie naciśnięcie nic nie robi), a miganie na czerwono potwierdza; po opóźnionym starcie układu BLE numer seryjny i bateria nadal są wysyłane.
+- Poprawek z 2026-11-13 (`07-port-qmk-i-narzedzia.md` §6; obraz wgrany 2026-11-13, klawiatura wstała, funkcji jeszcze nie sprawdzano):
+  - `FN2` + `5` przytrzymane 3 s przy połączonym hoście BLE: host ma zostać rozłączony od razu (`40 02`), a po ponownym tapnięciu slotu nie może się już połączyć bez nowego parowania;
+  - anulowanie migania slotu nie gasi koloru warstwy na Esc: przy trzymanym `FN2` naciśnięcie `6` (`KC_AP2_USB`) zostawia Esc w kolorze warstwy;
+  - dwa tapnięcia slotu w ciągu 6 s bez dostępnego hosta, przy aktywnym hoście USB: raporty wracają na USB około 6 s po drugim tapnięciu;
+  - tap slotu, a przed połączeniem przytrzymanie slotu (parowanie), przy aktywnym hoście USB: pisanie po USB działa od razu;
+  - wskaźnik baterii (`FN2` + `8`) nadal zapala się w całości, także przy animowanym efekcie.
 - Korekty 0 % baterii (`AP2_BATTERY_EMPTY_MV`) przy niskim napięciu.
 - Zgodności procentu baterii z napięciem zmierzonym multimetrem (napięcie odniesienia 3,1 V i dzielnik 2:1 pochodzą z analizy firmware).
 - Wersji układu BLE odebranej przez port: `annepro2_ble_version()` nie jest nigdzie wyświetlana.
@@ -49,7 +55,7 @@ Cel: parametry połączenia, które host faktycznie dostaje (PPCP w GATT kontra 
 2. W drugim: odłącz i podłącz klawiaturę po BLE (krótkie naciśnięcie slotu). Do sprawdzenia parowania użyj slotu, którego nie używasz na tym komputerze: najpierw `bluetoothctl remove <adres>` dla starego wpisu, potem przytrzymanie slotu i parowanie od nowa.
 3. Zatrzymaj `btmon` (Ctrl+C) i zachowaj plik do analizy.
 
-Parowanie na slocie zastępuje bond tego slotu i nie rusza pozostałych. `40 05` (`KC_AP2_BT_UNPAIR`, `deleteBleHost` w ObinsKit) kasuje bondy wszystkich slotów, więc go nie używaj.
+Parowanie na slocie zastępuje bond tego slotu i nie rusza pozostałych. `40 05` (`KC_AP2_BT_UNPAIR`, `deleteBleHost` w ObinsKit) kasuje bondy wszystkich slotów, więc w tej procedurze go nie używaj.
 
 ### 3.3. Podsłuch UART
 

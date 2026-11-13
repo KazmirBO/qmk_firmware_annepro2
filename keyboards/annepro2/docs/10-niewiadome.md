@@ -1,6 +1,6 @@
 # Niewiadome
 
-Stan na 2026-11-03: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.md` §6) po uzupełnieniu z 2026-11-03 (`09-metoda-i-weryfikacja.md` §8). Przy każdym punkcie: co by go rozstrzygnęło.
+Stan na 2026-11-13: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.md` §6) po uzupełnieniach z 2026-11-03 (`09-metoda-i-weryfikacja.md` §8) i 2026-11-13 (`09-metoda-i-weryfikacja.md` §9). Przy każdym punkcie: co by go rozstrzygnęło.
 
 ## 1. Płytka i piny MCU
 
@@ -18,7 +18,6 @@ Stan na 2026-11-03: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Pytanie | Co rozstrzygnie |
 |---|---|
 | Czy SysTick naprawdę liczy z STCLK = `CK_AHB`/8 (tick 10 ms) i czy ADCDIV = 6 to podział przez 64 | User Manual Holtek HT32F52342/52352 (rejestr SysTick i CKCU) |
-| Kiedy aktywne są warstwy 3 (strzałki w prawym dolnym rogu) i 4 (przyciski gamepada) mapy klawiszy (`03-mcu.md` §6.1) | analiza wyboru warstwy w procesie macierzy |
 | Czy przy mapie z SPI warstwa 4 (SPI 0x2000, której kod nigdy nie zapisuje) ma treść z fabryki | odczyt SPI przez `03 01` |
 | Bootloader MCU (0x0000-0x3FFF), rozmiar strony flash i to, czy 0x3E00 to ostatnia strona obszaru bootloadera | zrzut flash przez debuger albo karta katalogowa (rozmiar strony) |
 | Znaczenie bajtów +0, +1 i u16 +4 (0x3311) rekordu urządzenia (`03-mcu.md` §12) | kod bootloadera albo ObinsKit |
@@ -29,7 +28,6 @@ Stan na 2026-11-03: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Pytanie | Co rozstrzygnie |
 |---|---|
 | Zegar BFTM1, a więc rzeczywisty okres szczeliny matrycy (20 µs przy 48 MHz, `04-led.md` §7) | User Manual HT32F52342 albo pomiar oscyloskopem na pinie kolumny |
-| Rola flagi `0x2000345d` ustawianej przez „Led Hardware Matrix Process” | dalsza analiza odczytów tej flagi |
 
 ## 4. BLE 2.05
 
@@ -58,8 +56,8 @@ Stan na 2026-11-03: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Pytanie | Co rozstrzygnie |
 |---|---|
 | Zgodność procentu baterii z napięciem ogniwa i działanie korekty `AP2_BATTERY_EMPTY_MV` przy niskim napięciu | pomiar multimetrem, w tym tuż po wyłączeniu się klawiatury |
-| Czy `40 04` wysłane do hosta, z którym łącze BLE nadal trwa (po `KC_AP2_USB` albo przełączniku), wywołuje ponownie `20 0c`; jeśli nie, limit `AP2_BLE_CONNECT_TIMEOUT_MS` mógłby wrócić na USB mimo żywego łącza (limit działa tylko po przełączeniu z USB i ma wyłącznik `0`) [N] | tap slotu przy połączonym hoście z nagraniem UART (`08-testy-na-sprzecie.md` §3.3) |
-| Czy obrazy w `do-wgrania/wycofanie/` są identyczne z buildami swoich commitów | build starszych commitów w osobnym drzewie |
+| `40 04` (i `40 01`) zawsze najpierw zrywa trwające łącze: `2:BF3D` przy stanie 6 woła `2:9638` z powodem 0x13 [O, 2026-11-13], więc żywe łącze nie przetrwa tapnięcia slotu, a `20 0c` przyjdzie ponownie tylko po nowym połączeniu. Rozgłaszanie rusza po zakończeniu łącza (`05-ble.md` §7) [O, 2026-11-13]. Czy dany host łączy się ponownie w 5 s rozgłaszania, zanim `AP2_BLE_CONNECT_TIMEOUT_MS` (6 s) wróci na USB [N] | tap slotu przy połączonym hoście i obserwacja, czy pisanie zostaje na BLE (`08-testy-na-sprzecie.md` §3.1) |
+| Czy obrazy w `do-wgrania/wycofanie/` były identyczne z buildami swoich commitów; katalog usunięto 2026-11-04, więc bez jego kopii pytania nie da się już rozstrzygnąć | odzyskanie katalogu i build starszych commitów w osobnym drzewie |
 | Czy układ BLE przyjmuje numer seryjny od portu (`AP2_BLE_SERIAL`), czy rekord pod `0x3E00` na danym egzemplarzu zawiera UDID i czy ramka budząca w formacie oryginału działa tak jak poprzednia | wgranie `6c03dfe813` i odczyt Device Information (`08-testy-na-sprzecie.md` §3.1) |
 
 ## 7. Rozstrzygnięte 2026-11-03
@@ -74,3 +72,13 @@ Stan na 2026-11-03: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Bajty plik+0x90-0x91 (`93 8e`) i suma kontrolna obrazu BLE | CRC-16/XMODEM całego pliku, jak w bootloaderze szeregowym TI (`05-ble.md` §2) |
 | Nazwa polecenia HCI 0xFC20 | `HCI_EXT_GET_CONNECTION_INFO`, zdarzenie 0x0420 (`05-ble.md` §7) [zewn.] |
 | Rola PC3 | przesunięta do §1 jako linia uśpienia LED [I] |
+
+## 8. Rozstrzygnięte 2026-11-13
+
+| Było | Jest |
+|---|---|
+| Co `40 05` robi przy połączonym hoście (dotąd: usuwa wszystkie bondy) | przy aktywnym łączu tylko ustawia flagę `X:0807` (`1:84AF`: długość 0, `0:4609` = liczba połączeń, niezerowa prowadzi do `1:84C0`); bondy kasuje dopiero `1:87EB` po zakończeniu łącza (`1:87F6`-`1:8805`, wołane z `1:8DFB`) [O]. Port wysyła więc po `40 05` także `40 02`, które zrywa łącze (zmiana w drzewie roboczym, niesprawdzona na sprzęcie) |
+| Kiedy aktywne są warstwy 3 i 4 mapy klawiszy | warstwa 4 tylko w trybie kierownicy (bajt trybu `0x20001181` = 3), warstwa 3 jako tap-key po `10 05` (`03-mcu.md` §6.1) |
+| Rola flagi `0x2000345d` w LED | żadna: proces ustawia ją na 1 przy zdarzeniu 0x82, a nic jej nie czyta (`04-led.md` §1) |
+| Czy `40 04` do hosta z trwającym łączem zostawia to łącze i czy potem rusza rozgłaszanie | łącze jest zawsze kończone (`05-ble.md` §4.2), a rozgłaszanie rusza po jego zakończeniu (`05-ble.md` §7); zachowanie konkretnego hosta zostaje w §6 |
+| Jednostka czasu tap-key (`10 13`, 5-200) | tick systemowy, czyli 10 ms przy takcie z `03-mcu.md` §2: 50 ms do 2 s (`03-mcu.md` §6.1) |

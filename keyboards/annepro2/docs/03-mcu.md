@@ -98,7 +98,10 @@ Nazwy z ObinsKit 1.2.11, działanie w MCU 2.36 [O]:
 | 3 | RShift: strzałka w górę; FN1, FN2, RCtrl: strzałki w lewo, w dół, w prawo |
 | 4 | przyciski gamepada: Tab 0xD0 i `\` 0xD1 (osie), Q 0xD2, W 0xD3, A 0xD4, S 0xD5, Z 0xD6, X 0xD7, `]` 0xD8, `[` 0xD9, `'` 0xDA, `;` 0xDB, `/` 0xDC, `.` 0xDD |
 
-Kiedy MCU włącza warstwy 3 i 4, nie ustalono; zawartość wskazuje na tryb strzałek w prawym dolnym rogu (w ObinsKit „Magic FN” albo „Tap”) i na tryb kierownicy (§11) [I].
+Warstw 3 i 4 nie włącza klawisz warstwy; obsługa klawisza (`0x9788`) czyta je obok bieżącej warstwy (`0x92e6`: warstwa, pozycja; kod 0 jest zwracany jako 1, czyli brak) [O]:
+
+- Warstwa 4 jest czytana tylko wtedy, gdy bajt trybu `0x20001181` wynosi 3 (`0x97a8`). Ustawia go na 3 włączenie trybu kierownicy (`0xe472`), a na 0 jego wyłączenie (`0xe4a8`-`0xe4b2`) i start (`0x79e6`). W trybie kierownicy klawisz, który ma kod w warstwie 4, wysyła przy naciśnięciu ten kod zamiast zwykłego (`0x98e8`), a pozostałe klawisze działają normalnie [O]. To warstwa pedałów i przycisków gamepada z §11.
+- Warstwa 3 jest czytana poza trybem kierownicy oraz dla klawiszy bez kodu w warstwie 4 (`0x97bc`-`0x97d0`). Klawisz z kodem w warstwie 3 staje się klawiszem tap-key tylko wtedy, gdy bajt `0x2000116b` (`10 05`, `writeKbdTap`) jest różny od 0 (`0x983e`, `0x80c6`). Naciśnięcie uzbraja licznik klawisza (`0xa0b0`) wartością czasu tap-key (`0x2000116c`, `10 13`, zakres 5-200, poza nim 6; `0xa27e`). Zwolnienie przed końcem licznika wysyła kod z warstwy 3, czyli strzałkę (`0xa0ec`, `0x9e06`), a gdy licznik dojdzie do zera przy wciśniętym klawiszu, proces Tap naciska zwykły kod klawisza, np. RShift albo FN1 (`0xa2b4`, `0x9d34`), który późniejsze zwolnienie zwalnia razem z kodami pozostałych warstw (`0x9d90`) [O]. Przy trybie tap-key 2 (`0x2000116d`, `10 11`) i więcej niż jednym bicie w tablicy stanu macierzy (`0xaf64`), czyli przy drugim wciśniętym klawiszu [I], kod z warstwy 3 jest pomijany, a oczekujące tapnięcia zamieniają się w przytrzymania (`0x97d6`, `0xa1f2`) [O]. Liczniki klawiszy zmniejsza o 1 proces Tap (`0xa2b4`) przy każdym zdarzeniu swojego etimera, ustawianego na 1 tick (`0xa37a`), oraz przy odpytaniu po naciśnięciu, więc jednostką jest tick systemowy (10 ms, §2): czas tap-key 5-200 to 50 ms do 2 s, domyślne 6 to 60 ms, a kod tapnięcia jest trzymany 5 ticków (`0xa0ec`) [O].
 
 ## 7. Zasilanie i sen
 
@@ -184,5 +187,7 @@ Kiedy MCU włącza warstwy 3 i 4, nie ustalono; zawartość wskazuje na tryb str
 | `0xcaee` | procedura SysTick |
 | `0x2000017c`, `0x80aa`, `0x7d40`, `0xcb78` | deskryptor mapy, wybór mapy, mapa z SPI, mapa fabryczna |
 | `0xcbac`, `0xcce0`, `0xf2a4` | mapa fabryczna ANSI i ISO, pozycje klawiszy w macierzy |
+| `0x9788`, `0x92e6`, `0xa0b0`, `0xa0ec`, `0xa1f2` | obsługa klawisza z wyborem warstw 3 i 4, odczyt mapy, tap-key: naciśnięcie, zwolnienie, zamiana na przytrzymanie |
+| `0x20001181`, `0x2000116b`, `0x2000116c`, `0x2000116d` | bajt trybu (3 = kierownica), włącznik tap-key (`10 05`), czas (`10 13`) i tryb tap-key (`10 11`) |
 | `0xd80c`, `0xd820`, `0xd950`, `0xdad4`, `0xdb98`, `0xe560` | int na double, `atan2`, mnożenie, dzielenie, double na int, `atan` |
 | `0xb734` | martwe ramki `40 07` (`02-protokol.md` §2) |

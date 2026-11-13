@@ -1,6 +1,6 @@
 # Anne Pro 2 (C18): analiza fabrycznego firmware i port QMK
 
-Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6). Uzupełnienie z 2026-11-03 (mapa fabryczna MCU, matryca, wskaźniki i uśpienie LED, suma kontrolna obrazu BLE i kilka rozstrzygniętych niewiadomych) opisuje `09-metoda-i-weryfikacja.md` §8.
+Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6). Uzupełnienie z 2026-11-03 (mapa fabryczna MCU, matryca, wskaźniki i uśpienie LED, suma kontrolna obrazu BLE i kilka rozstrzygniętych niewiadomych) opisuje `09-metoda-i-weryfikacja.md` §8, a uzupełnienie z 2026-11-13 (odroczone kasowanie bondów, zrywanie łącza przez `40 04`, warstwy 3 i 4 mapy MCU, flaga LED bez odczytów, poprawki portu) `09-metoda-i-weryfikacja.md` §9.
 
 ## 1. Źródła
 
@@ -34,12 +34,12 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 3. **Handshake:** MCU wysyła do BLE `02 01 02` i `01 03 02` przy starcie, 5 razy co 0,5 s i dalej co 5 s, aż BLE odpowie `01 03 25` (wersja 2.05); potem zawsze odsyła UDID jako 32 znaki hex (`01 10`), które układ BLE odrzuca, więc numer seryjny DIS zostaje domyślny (`03-mcu.md` §3).
 4. **Wybór wyjścia:** przełącznik Bluetooth z tyłu klawiatury to PC10 (Off: USB, On: Bluetooth, sprawdzone na C18), detekcja USB to PC0; po USB raport NKRO 37 B, po BLE 8 B (`03-mcu.md` §4).
 5. **Sloty:** klawisze 200-203; krótkie naciśnięcie wysyła `40 04 <slot>` (łącz), przytrzymanie 5 s `40 01 <slot>` (paruj); połączenie (`20 0c` od BLE) gasi wskaźnik na diodach (`03-mcu.md` §5).
-6. **Układ BLE:** parowanie Just Works z bondingiem, do 10 bondów, sloty to indeksy bondów z tą samą nazwą i adresem; parowanie rozgłasza 60 s, łączenie 5 s, co 20 ms; po rozłączeniu rozgłaszanie nie wraca samo, wznawia je dopiero naciśnięcie klawisza; `40 05` kasuje bondy wszystkich slotów (`05-ble.md` §7-8).
+6. **Układ BLE:** parowanie Just Works z bondingiem, do 10 bondów, sloty to indeksy bondów z tą samą nazwą i adresem; parowanie rozgłasza 60 s, łączenie 5 s, co 20 ms; po rozłączeniu rozgłaszanie nie wraca samo, wznawia je dopiero naciśnięcie klawisza; `40 05` kasuje bondy wszystkich slotów, przy połączonym hoście dopiero po zakończeniu łącza (`05-ble.md` §7-8).
 7. **Bateria:** fabryczny MCU mierzy baterię (ADC na PA7), ale nie wysyła pomiaru do BLE, więc host widzi stałe 100 %; układ BLE ma własną krzywą z interpolacją i poziom tylko obniża; port QMK wysyła pomiar (`03-mcu.md` §8, `05-ble.md` §9, `07-port-qmk-i-narzedzia.md` §1).
 8. **Sen:** po około 1 s bezczynności (bez USB, z włączonym „Auto Sleep”) MCU przechodzi w DeepSleep; po upływie limitu snu RTC budzi go do długiego snu i dopiero wtedy wysyła do BLE `11 01` (`03-mcu.md` §7).
 9. **System:** MCU i LED działają na Contiki OS z tickiem 10 ms, BLE na OSAL i stosie TI BLE w kodzie bankowanym IAR (`01-architektura.md` §4).
 10. **Funkcje ukryte i martwe:** tryb kierownicy „Game wheel” (akcelerometr LIS3DH jako gamepad USB), efekty podświetlenia 22, 26 (poziomica) i 27 nieobecne w ObinsKit, kody 0xA5-0xA7 bez działania, mysz wirtualna ignorowana przez BLE, wizualizacja dźwięku bez obsługi w LED (`03-mcu.md` §6, `03-mcu.md` §11, `04-led.md` §4, `05-ble.md` §4.3).
-11. **Mapa fabryczna:** MCU ma we flash pięć warstw ANSI (baza, FN1, FN2 ze slotami BLE, podświetleniem i myszą na IJKL, warstwa strzałek i warstwa gamepada); `10 06` przełącza między nią a mapą z SPI, a tablica ISO jest w obrazie, ale nieużywana (`03-mcu.md` §6.1).
+11. **Mapa fabryczna:** MCU ma we flash pięć warstw ANSI (baza, FN1, FN2 ze slotami BLE, podświetleniem i myszą na IJKL, warstwa strzałek i warstwa gamepada); `10 06` przełącza między nią a mapą z SPI, a tablica ISO jest w obrazie, ale nieużywana; warstwa strzałek działa jako tap-key po `10 05`, a warstwa gamepada tylko w trybie kierownicy (`03-mcu.md` §6.1).
 12. **LED:** piny matrycy 5 × 14 RGB są te same co w wariancie C18 `annepro2-shine`; wskaźniki slotu, Caps Lock, kierownicy i baterii (klawisze 1-0 jako pasek co 10 %) mają ustaloną kolejność i zatrzymują efekt; `20 1f` wybiera tabelę jasności 0-15 albo 0-36; układ LED zasypia na sygnał z PB12, najpewniej z PC3 w MCU (`04-led.md` §6-8).
 13. **Uwagi o bezpieczeństwie:** odczyt raportu wyjściowego ID 2 po BLE zwraca 15 B niezapisanej pamięci, `40 13` i `40 31` zwracają bajty stosu, a przez UART można zmienić adres BD i skasować bondy (`05-ble.md` §13).
 
@@ -60,7 +60,6 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 
 ## 5. Poza tym katalogiem
 
-- `analiza/`: skrypty importu do Ghidry i kontroli, eksporty pseudokodu i listingów, wyniki weryfikacji (`analiza/wyniki/`) i rejestr twierdzeń (`analiza/rejestr-twierdzen.md`).
+- `analiza/`: skrypty importu do Ghidry i kontroli, eksporty pseudokodu i listingów, wyniki weryfikacji (`analiza/wyniki/`) i rejestr twierdzeń (`analiza/rejestr-twierdzen.md`). Od 2026-11-04 katalog leży w forku jako `keyboards/annepro2/lokalne/analiza/` (poza kontrolą wersji), a obrazy fabryczne w `lokalne/obrazy-fabryczne/`; ścieżki `analiza/...` w tej dokumentacji oznaczają to miejsce.
 - `propozycje/`: archiwalne patche z 2026-10-14 i kopie plików sprzed zmian; ich treść jest dziś w commitach forka.
-- `do-wgrania/`: obraz portu dla keymapy `kazmir_bo`, narzędzie do wgrywania i instrukcja.
-- `docs.bak-2026-10-27/`: dokumentacja sprzed przebudowy, do której odwołują się wyniki weryfikacji.
+- `do-wgrania/` (obraz portu dla keymapy `kazmir_bo`, narzędzie do wgrywania i instrukcja) i `docs.bak-2026-10-27/` (dokumentacja sprzed przebudowy, do której odwołują się wyniki weryfikacji) zostały usunięte 2026-11-04 i nie ma ich już w projekcie.

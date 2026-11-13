@@ -10,7 +10,7 @@ Obraz `rgb-c18-2.33.2.bin`, adresy przy bazie 0x4000. Znaczniki i konwencje: `RE
 |---|---|---|---|
 | AT process | `0xa184` | `0x200029a8` | odbiór ramek z USART1 i tablica poleceń (§2) |
 | Led Animate Process | `0xb73c` | `0x20002a18` | co tick: wybór tego, co wyświetlić (`0x838e`, §6), i przeliczenie ramki na bufory wyjść (`0xb02c`, §7) |
-| Led Hardware Matrix Process | `0xb79c` | `0x20002a28` | ustawia flagę `0x2000345d`; odpytywany z przerwania IRQ 12 |
+| Led Hardware Matrix Process | `0xb79c` | `0x20002a28` | ustawia flagę `0x2000345d`, której nic nie czyta (jedyny wskaźnik na nią to literał `0xb274`, używany tylko przez zapis w `0xafc0`) [O]; odpytywany z przerwania IRQ 12 |
 | Keyboard Misc Process | `0x9030` | `0x20002a3c` | uśpienie na żądanie z linii PB12 i zasilanie matrycy (§8) |
 
 - Takt: procedura SysTick (`0xb5b8`) przy każdym przerwaniu odpytuje proces animacji. SysTick liczy z STCLK z przeładowaniem 60 000, wyliczonym z zegara 48 MHz (zmienna `0x20002a4c` = 48 000 000) jako 48 000 000 / 8 / 100 (`0x9114`) [O]. Tick wynosi więc 10 ms przy STCLK = `CK_AHB`/8, jak w MCU [I mocne].

@@ -183,3 +183,20 @@ Druga runda analizy statycznej, skierowana na punkty z `10-niewiadome.md` i na o
 | procesy, takt, polecenia `20 xx`, wskaźniki, matryca, jasność i uśpienie LED | `04-led.md` §1, §3, §6-8 | pseudokod i listing LED; piny porównane z `annepro2-shine` (commit `0bcaf1c`, wariant C18) [zewn.] |
 
 Źródła zewnętrzne tej rundy (dostęp 2026-11-03): wątki forum TI E2E o bootloaderze szeregowym CC2530/CC2540 (sekcje `CHECKSUM` 0x2090-0x2091 i `CRC_SHDW` 0x2092-0x2093 w pliku linkera), dokumentacja TI BLE-Stack 3.01.00.07 (doxygen, `hci_tl.h`), lokalna kopia `annepro2-shine`.
+
+## 9. Uzupełnienie z 2026-11-13
+
+Trzecia runda, połączona z przeglądem kodu portu QMK (`07-port-qmk-i-narzedzia.md` §6). Źródła jak w §8: eksporty Ghidry bez ponownego importu i bajty obrazów. Nowe twierdzenia nie mają wpisów w `analiza/rejestr-twierdzen.md`; bajty, na których się opierają, sprawdza `analiza/py/sprawdz_bajty.py` (74 kontrole, uruchamiane z katalogiem obrazów: `python3 -I lokalne/analiza/py/sprawdz_bajty.py lokalne/obrazy-fabryczne`).
+
+| Ustalenie | Gdzie | Dowód |
+|---|---|---|
+| `40 05` przy aktywnym połączeniu tylko ustawia flagę `X:0807`; bondy kasuje obsługa zakończenia łącza | `05-ble.md` §4.2, §8 | Ghidra nie zdekompilowała przypadków instrukcji `switch` w `1:8359` (tablica skoków w kodzie po wywołaniu `0:3343`), więc tablicę pod `1:8375` (dolna granica 0x0400, 0x10 przypadków, adres domyślny, 17 adresów) i 22 B przypadku 0x409 pod `1:84AF` odczytano z bajtów pliku i zdekodowano (`analiza/py/dis51.py`, deasembler 8051 napisany w tej rundzie); odczyt flagi w `1:87EB` jest w listingu |
+| `40 04` i `40 01` zawsze najpierw kończą trwające łącze (powód 0x13) | `05-ble.md` §4.2 | listing `2:BF3D` i `2:9638`, wywołania z `1:FC24` |
+| rozgłaszanie włączone przy trwającym połączeniu rusza dopiero po zakończeniu łącza | `05-ble.md` §7 | przypadek 0x305 w `2:9065` (tablica `2:907B`, kod `2:9100`, zdekodowany z bajtów przez `analiza/py/dis51.py`), listing `2:9733` i `2:9D4D`; numery stanów zgodne z `gaprole_States_t` w TI BLE-Stack [zewn., z pamięci modelu] |
+| warstwa 4 mapy MCU działa tylko w trybie kierownicy, warstwa 3 jako tap-key po `10 05`; czas tap-key liczony w tickach | `03-mcu.md` §6.1 | pseudokod i listing `0x9788`, `0x92e6`, `0xa0b0`, `0xa0ec`, `0xa1f2`, `0xa2b4`, `0xe472`-`0xe4b2`, dyspozytor poleceń `10 xx` (`0x5b56`) |
+| flaga LED `0x2000345d` nie ma odczytów | `04-led.md` §1 | wyszukanie w całym obrazie wskaźników na `0x20003450`-`0x20003461`: na flagę wskazuje tylko literał `0xb274`, używany przez jeden zapis; sąsiednie bazy (`0x2000342c` z przesunięciem 0x30, `0x2000345e`, `0x2000345f`, `0x20003460`) jej nie sięgają, a kod Thumb nie ma tu ujemnych przesunięć [O co do wskaźników, I co do braku odczytu pośredniego] |
+
+Adresy kodu BLE przelicza się na przesunięcie w pliku tak: obszar wspólny `adres - 0x2000`, bank `b` `b * 0x8000 + adres - 0x8000 - 0x2000`. Zachowanie menedżera bondów porównano z opisem `GAPBOND_ERASE_ALLBONDS` w TI BLE-Stack [zewn., z pamięci modelu, bez dostępu do źródeł w tej rundzie]; wniosek opiera się na bajtach obrazu, nie na tym porównaniu.
+
+Czego ta runda nie rozstrzygnęła: czy konkretny host łączy się ponownie w 5 s po `40 04` (`10-niewiadome.md` §6) oraz pozostałych punktów `10-niewiadome.md` §4.
+
