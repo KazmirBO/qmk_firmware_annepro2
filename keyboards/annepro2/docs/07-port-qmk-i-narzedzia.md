@@ -1,6 +1,6 @@
 # Port QMK i narzędzia względem oryginału
 
-Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, katalog `keyboards/annepro2/`; od `f3317b7ece` scalony z `qmk/qmk_firmware` `master` `180f394b48` z 2026-10-16) i lokalna gałąź `feature/ble-stock-parity` repozytorium `AnnePro2-Tools` (`b5c02bc`, niepublikowana). Opis zachowania oryginału jest w `03-mcu.md` i `05-ble.md`; tutaj jest tylko to, co port robi, czym różni się od oryginału i gdzie to jest w kodzie. Wszystkie twierdzenia o kodzie portu sprawdzono w kodzie i buildach z 2026-10-27; wyniki testów na klawiaturze są w `08-testy-na-sprzecie.md`. Uzupełnienie z 2026-11-13: §1, §3, §5 i §6 opisują też commit `3fad67e4b0` (na `6f3c9160a4`) z poprawkami z przeglądu kodu; obraz `c18:kazmir_bo` wgrano 2026-11-13 (§5).
+Stan na 2026-10-27: fork `qmk_firmware_annepro2` (kod z commitu `6c03dfe813`, katalog `keyboards/annepro2/`; od `f3317b7ece` scalony z `qmk/qmk_firmware` `master` `180f394b48` z 2026-10-16) i lokalna gałąź `feature/ble-stock-parity` repozytorium `AnnePro2-Tools` (`b5c02bc`, niepublikowana). Opis zachowania oryginału jest w `03-mcu.md` i `05-ble.md`; tutaj jest tylko to, co port robi, czym różni się od oryginału i gdzie to jest w kodzie. Wszystkie twierdzenia o kodzie portu sprawdzono w kodzie i buildach z 2026-10-27; wyniki testów na klawiaturze są w `08-testy-na-sprzecie.md`. Uzupełnienie z 2026-11-13: §1, §3, §5 i §6 opisują też commit `3fad67e4b0` (na `6f3c9160a4`) z poprawkami z przeglądu kodu; obraz `c18:kazmir_bo` wgrano 2026-11-13 (§5). Commit `4a0086b5ae` przenosi ponadto upstreamowy PR #26573 (timer dla `wait_us()`, §6); jego obraz `c18:kazmir_bo` wgrano 2026-11-13 (§5).
 
 ## 1. Funkcje Bluetooth portu
 
@@ -50,7 +50,8 @@ Odpowiednik `KC_BL_BATT` z oryginału. Mierzy baterię i pokazuje poziom (liczon
 - Warstwa `FN2`: sloty BLE na `1`-`4`, `KC_AP2_USB` na `6`, `KC_AP2_BATT` na `8`. `KC_AP2_BT_UNPAIR` na `5`; działa dopiero po przytrzymaniu 3 s, bo kasuje bondy wszystkich slotów (ponowne parowanie slotu zastępuje tylko jego bond).
 - Warstwa `FN1`: jasność ekranu na `M` (w dół) i `,` (w górę).
 - Caps Lock przytrzymany działa jako `FN1` po 250 ms (`CAPS_FN1_TAPPING_TERM`); pozostałe klawisze mają `TAPPING_TERM` 100 ms.
-- Debounce: `sym_defer_pk`, 20 ms na obu zboczach (`a7eb48fa3b`, `7c6dd49603`), z powodu drgań przełącznika W.
+- Debounce: `sym_defer_pk`, 20 ms na obu zboczach (`a7eb48fa3b`, `7c6dd49603`), z powodu drgań przełącznika W. Ustawiono go, gdy macierz była skanowana około 200 razy na sekundę (§6, PR #26573); czy po przyspieszeniu skanu wystarczy krótszy czas, nie sprawdzano.
+- `MATRIX_IO_DELAY` ma domyślne 30 µs z QMK. Wcześniejsze `1` nic nie zmieniało, dopóki `wait_us()` usypiał wątek na cały tick 1 ms; z timerem dawałoby kolumnom 1 µs na powrót do stanu wysokiego.
 - Na C15 keymapa nie włącza efektu Pixel Flow (`KEYBOARD_annepro2_c15` w `config.h`): po `6f3c9160a4` brakowało tam 36 B RAM, a efekt trzyma 183 B stanu. C18 ma komplet efektów.
 
 ## 4. AnnePro2-Tools (lokalna gałąź `feature/ble-stock-parity`)
@@ -63,20 +64,20 @@ Odpowiednik `KC_BL_BATT` z oryginału. Mierzy baterię i pokazuje poziom (liczon
 
 ## 5. Buildy
 
-Buildy z `3fad67e4b0` z 2026-11-13 (drzewo zawiera `upstream/master` `3329239097`; zbudowane z drzewa roboczego o tej samej treści źródeł, przed commitem), bez ostrzeżeń kodu, po `make clean`:
+Buildy z `4a0086b5ae` z 2026-11-13 (przeniesiony PR #26573, §6; drzewo zawiera `upstream/master` `3329239097`; zbudowane z drzewa roboczego o tej samej treści źródeł, przed commitem), bez ostrzeżeń kodu, po `make clean`:
 
 | Cel | Rozmiar | SHA-256 |
 |---|---|---|
-| `c18:kazmir_bo` | 32 992 B | `4b820d9082bd1ff0f4f453204f709935ec4672266487e690c804e89f88a099e7` |
-| `c15:kazmir_bo` | 31 048 B | `a5eae9d2feb247eec60f92cbbb7b2aa838eede6efbd5dac57e14fd47ec709b4a` |
-| `c18:default` | 35 044 B | `b85e77235ba470edbe7c9e89657a20a3b026f6da38a954d15b67ebd595f7c378` |
-| `c15:default` | 35 044 B | `6ea9cc4b111ba00cc753053fd8e665dbf1fd650bd7986247d6194d7f7866a735` |
-| `c18:default` z `-DAP2_BT_SWITCH` | 35 216 B | `8387548b1feee8f4605fd888954abf078571afa656660e6a21fc03f77f5d6b5f` |
-| `c18:default` z `-DAP2_BLE_SERIAL` | 35 152 B | `7d59dccdcb839cfcd66e8b8e177cf35328c602f626b55c78e7b1f88b6bd9c4ee` |
+| `c18:kazmir_bo` | 33 216 B | `1f5ce8bb453721a4c86dca4714ef3e92d78ab3fbb244887625478eaccc27c752` |
+| `c15:kazmir_bo` | 31 248 B | `4a2a037290ecbb29f28a07460522f0bd9c59bc337b9d4b2283436a4b88f752ce` |
+| `c18:default` | 35 288 B | `cf4308727620654a9aa9ae4206c588d7eabbaddeee9806f5e2be28e78cfdc56f` |
+| `c15:default` | 35 288 B | `88877d8aae139ef7548f459e23b63ea1e87f2ab461a421071dd52fbe478b52d5` |
+| `c18:default` z `-DAP2_BT_SWITCH` | 35 436 B | `ac4c681328850cff6e4eaa6bb2415c6af41cff9eb2706152f6b9f4794e96c93d` |
+| `c18:default` z `-DAP2_BLE_SERIAL` | 35 396 B | `2a1d17e6978e7c6ad70d1518ef0defe367dc06eb4d2a41ab3c024e2cc72beda8` |
 
-Warianty z flagami budowano jako `make annepro2/c18:default EXTRAFLAGS=-DAP2_BT_SWITCH` (analogicznie `-DAP2_BLE_SERIAL`). `c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18).
+Warianty z flagami budowano jako `make annepro2/c18:default EXTRAFLAGS=-DAP2_BT_SWITCH` (analogicznie `-DAP2_BLE_SERIAL`). `c15:default` z `-DAP2_BLE_SERIAL` kończy się zamierzonym błędem `#error` (rekord urządzenia znany tylko dla C18). Budują się też przemianowane keymapy `c18:default_full_caps`, `c18:default_layer_indicators` i `c18:iso_default`. Na C15 keymapie `default` zostaje 16 B wolnego RAM-u, a `kazmir_bo` 132 B. Obraz `c18:kazmir_bo` wgrano na klawiaturę 2026-11-13 (`annepro2_tools --boot`, 33 216 B zapisane, "Flash complete"), po czym zgłosiła się po USB jako `ac20:8009` „Anne Pro 2 C18 (QMK)”. Wgranie nie jest jeszcze testem (`08-testy-na-sprzecie.md` §2).
 
-Build `c18:kazmir_bo` jest powtarzalny: build przed `make clean` i po nim dał bajt w bajt ten sam plik. Obraz `c18:kazmir_bo` wgrano na klawiaturę 2026-11-13 (`annepro2_tools --boot`, 32 992 B zapisane, "Flash complete"), po czym zgłosiła się po USB jako `ac20:8009` „Anne Pro 2 C18 (QMK)”. Wgranie nie jest jeszcze testem: punkty do sprawdzenia na klawiaturze są w `08-testy-na-sprzecie.md` §2.
+Poprzedni zestaw, z `3fad67e4b0` (zbudowany przed commitem z drzewa o tej samej treści źródeł, a `c18:kazmir_bo` ponownie po commicie, z tą samą sumą): `c18:kazmir_bo` 32 992 B `4b820d9082bd1ff0f4f453204f709935ec4672266487e690c804e89f88a099e7`, `c15:kazmir_bo` 31 048 B `a5eae9d2feb247eec60f92cbbb7b2aa838eede6efbd5dac57e14fd47ec709b4a`, `c18:default` 35 044 B `b85e77235ba470edbe7c9e89657a20a3b026f6da38a954d15b67ebd595f7c378`, `c15:default` 35 044 B `6ea9cc4b111ba00cc753053fd8e665dbf1fd650bd7986247d6194d7f7866a735`. Obraz `c18:kazmir_bo` z tego zestawu był wgrany na klawiaturę 2026-11-13 (32 992 B zapisane, "Flash complete"), do czasu wgrania obrazu z bieżącego zestawu tego samego dnia.
 
 Scalenia upstreamu zmieniają obrazy także bez zmian w porcie. Sam `6f3c9160a4` (bez poprawek z 2026-11-13) daje `c18:kazmir_bo` 32 840 B, `960d8913bc9c577044ce34957d76205e2ba0a214df2602cd844c8dc55b2ae2b8`, a `c15:kazmir_bo` się na nim nie linkuje (36 B ponad RAM). Obrazy keymap `default` zmalały o około 4,4 kB, najpewniej dlatego, że upstream usunął z `info.json` efekty `typing_heatmap` i `digital_rain` [I].
 
@@ -123,6 +124,7 @@ Poprzedni zestaw, z `c0a2cfcccb` z 2026-11-06 (drzewo z `upstream/master` `f5db9
 | `97d3db7e65` | 2026-11-08 | rozmiary i sumy buildów `c0a2cfcccb` w §5 |
 | `6f3c9160a4` | 2026-11-12 | scalenie `upstream/master` (`3329239097`); `ec8a1b6549` powiększa bufor USB EP0 z 2 do 64 B i usuwa z `info.json` efekty `typing_heatmap` i `digital_rain`; `c15:kazmir_bo` przestaje się linkować |
 | `3fad67e4b0` | 2026-11-13 | unpair kończy też łącze (`40 02` po `40 05`) i najpierw wraca na USB; anulowanie migania na właściwym klawiszu; powrót na USB zachowany po ponowionym tapie i przy parowaniu w trakcie próby łączenia; wskaźnik baterii zostawia rezerwę kolejki UART LED; `kazmir_bo` na C15 bez efektu Pixel Flow |
+| `4a0086b5ae` | 2026-11-13 | przeniesiony upstreamowy PR #26573 (`qmk/qmk_firmware`, autor Fede-26, otwarty, niescalony): `WAIT_US_TIMER GPTD_BFTM0` w `c15/config.h` i `c18/config.h`, `HAL_USE_GPT` w `halconf.h`, `HT32_GPT_USE_BFTM0` w `mcuconf.h`, poprawione nagłówki licencji keymap `default` i `iso_default`, keymapy `default-full-caps` i `default-layer-indicators` przemianowane na `default_full_caps` i `default_layer_indicators`. Na Cortex-M0 `wait_us()` bez timera to `chThdSleepMicroseconds()`, które przy takcie 1 kHz trwa cały tick, a macierz czeka raz na wiersz, więc skan 5 wierszy trwał około 5 ms [O z kodu]; PR podaje 200 Hz przed zmianą i 3300 Hz po niej [zewn., niemierzone tutaj]. Ponad PR: `kazmir_bo` bez `MATRIX_IO_DELAY 1` (§3). Zmiany nagłówka w `ap2_led.h` nie przenoszono, bo plik w forku ma go już poprawnego |
 
 Wiersze od `6a53fe3a45` do `97d3db7e65` dopisano 2026-11-13 na podstawie tytułów commitów (`git log`), bez ponownego czytania ich treści.
 
