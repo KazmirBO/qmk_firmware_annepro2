@@ -589,8 +589,11 @@ static const ap2_led_t ap2_red = {
 };
 
 static void unpair_now(uint8_t row, uint8_t col) {
-    annepro2_ble_unpair();
+    /* Back to the USB driver first: the switch sends an empty report to the BLE MCU, and a report makes a BLE MCU that
+     * is neither connected nor advertising advertise again. Sent after the unpair commands, it would leave the BLE MCU
+     * advertising for a new pairing. */
     annepro2_ble_disconnect();
+    annepro2_ble_unpair();
     ap2_led_cancel_blink();
     ap2_led_blink(row, col, ap2_red, 8, 50);
 }

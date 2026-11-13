@@ -65,7 +65,7 @@ static host_driver_t ap2_ble_driver = {ap2_ble_leds, ap2_ble_keyboard, NULL, ap2
  *   20 07 <0|1>   host Caps Lock state (BLE_STS_ID_CAPSLOCK)
  *   20 0c 00      a host connected (BLE_STS_ID_CONNECT), sent twice; nothing is sent on a disconnect
  *   40 01 00, 40 04 00, 40 05 00
- *                 one-byte replies to the slot and unpair commands, ignored by the parser
+ *                 one-byte replies to the slot and unpair commands, ignored by the parser (40 02 has no reply)
  */
 
 /* Sub-commands sent to the BLE MCU. */
@@ -75,8 +75,9 @@ enum {
     BLE_KEYBOARD_REPORT = 0x04, /* 8-byte boot keyboard report */
     BLE_KEYBOARD_MEDIA  = 0x08, /* AP2 media bits + 3 reserved bytes */
     BLE_BLE_PAIR        = 0x01, /* advertise for pairing on a slot */
+    BLE_BLE_DISCONNECT  = 0x02, /* end the link to the connected host, or stop advertising; no reply */
     BLE_BLE_CONNECT     = 0x04, /* connect to the device bonded on a slot */
-    BLE_BLE_UNPAIR      = 0x05, /* delete the bonds of all slots */
+    BLE_BLE_UNPAIR      = 0x05, /* delete the bonds of all slots; with a host connected, only once the link ends */
 };
 
 #define BLE_TX_HEADER_SIZE 8
@@ -194,12 +195,17 @@ void annepro2_ble_send_serial(void) {
  * annepro2_ble_host_connected() moves them when the new host connects and no USB host is in use. */
 void annepro2_ble_pair(uint8_t port) {
     if (port > 3) port = 3;
+    /* The pairing command replaces a connect attempt. If that attempt had moved the reports away from a USB host, they
+     * go back to it now, where they stay while nothing has paired: otherwise they would be left on a link that never
+     * came up, with no timeout to bring them back. This comes before the command, because the empty report that the
+     * switch sends makes a BLE MCU that is neither connected nor advertising advertise on its own. */
+    if (connect_pending && annepro2_usb_host_in_use()) annepro2_ble_disconnect();
     ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
     ble_capslock    = false; /* a new host: its state is unknown until it writes its LED report */
     ble_slot        = port;
     pair_pending    = true;
     ble_timer       = timer_read();
-    connect_pending = false; /* the pairing command replaced the connect attempt, the reports stay where they are */
+    connect_pending = false;
 }
 
 /* Without AP2_BLE_SLOT_TAP_HOLD: the first press pairs (a new host may connect, so it resets like a pairing), a second
@@ -222,8 +228,9 @@ void annepro2_ble_connect(uint8_t port) {
     ble_slot     = port;
     pair_pending = false;
 #if AP2_BLE_CONNECT_TIMEOUT_MS > 0
-    /* Only a connect that itself moved the reports away from a USB host can fall back to it. */
-    connect_pending = host_get_driver() != &ap2_ble_driver && annepro2_usb_host_in_use();
+    /* Only a connect that itself moved the reports away from a USB host can fall back to it. An attempt that is
+     * repeated before a host has connected (a second tap, another slot) still can, and its time starts again. */
+    connect_pending = connect_pending || (host_get_driver() != &ap2_ble_driver && annepro2_usb_host_in_use());
     ble_timer       = timer_read();
 #endif
     ap2_ble_switch_ble_driver();
@@ -263,8 +270,13 @@ void annepro2_ble_disconnect(void) {
     host_set_driver(last_host_driver);
 }
 
+/* Delete the bonds of all slots. While a host is connected the BLE MCU only notes 40 05 and deletes the bonds when that
+ * link ends (the bond manager of its TI stack), and it reports no disconnect, so the host would stay connected, and
+ * bonded, for as long as it likes. 40 02 ends the link, or the advertising of a pairing in progress, so the bonds are
+ * gone at once in both cases. */
 void annepro2_ble_unpair(void) {
     ble_send(BLE_CMD_BLE, BLE_BLE_UNPAIR, NULL, 0);
+    ble_send(BLE_CMD_BLE, BLE_BLE_DISCONNECT, NULL, 0);
     ble_capslock    = false;
     ble_slot        = -1;
     pair_pending    = false;

@@ -129,19 +129,35 @@ void ap2_led_set_manual_control(uint8_t manual) {
     proto_tx(CMD_LED_SET_MANUAL, payload, sizeof(payload), 1);
 }
 
+/* The key of the last blink (row << 4 | column) and the time by which the LED MCU has finished it. */
+#define BLINK_NONE 0xff
+static uint8_t  blink_key = BLINK_NONE;
+static uint32_t blink_end;
+
 void ap2_led_blink(uint8_t row, uint8_t col, ap2_led_t color, uint8_t count, uint8_t hundredths) {
     uint8_t payload[] = {row, col, color.p.blue, color.p.green, color.p.red, color.p.alpha, count, hundredths};
     proto_tx(CMD_LED_KEY_BLINK, payload, sizeof(payload), 1);
+    blink_key = row << 4 | col;
+    /* 2 * count phases of hundredths * 10 ms each, and a quarter more: the LED MCU sleeps in whole ticks. */
+    blink_end = timer_read32() + (uint32_t)count * hundredths * 25;
 }
 
 /* Cancel an ongoing blink. Sending CMD_LED_KEY_BLINK stops the current blink
- * thread and starts a new one with the given payload. Using 8 zero bytes
- * ensures payload[6] (count) is explicitly 0, so the new thread exits
- * immediately without blinking anything. A 1-byte payload would leave
- * payload[1..7] as stale data from the previous message, potentially causing
- * an unintended ghost blink on a random key. */
+ * thread and starts a new one with the given payload. All 8 bytes are sent,
+ * so payload[6] (count) is explicitly 0 and the new thread exits immediately
+ * without blinking anything. A 1-byte payload would leave payload[1..7] as
+ * stale data from the previous message, potentially causing an unintended
+ * ghost blink on a random key.
+ *
+ * A blink thread that ends clears the mask of its key, the new one as well.
+ * The cancel therefore names the key that blinks, whose mask the blink clears
+ * anyway: with key 0, as before, every cancel also took the layer colour off
+ * Esc. Nothing is sent when no blink can be running. */
 void ap2_led_cancel_blink(void) {
-    uint8_t payload[8] = {0};
+    if (blink_key == BLINK_NONE) return;
+    uint8_t payload[8] = {blink_key >> 4, blink_key & 0x0f};
+    blink_key          = BLINK_NONE;
+    if (timer_expired32(timer_read32(), blink_end)) return; /* it has ended by itself */
     proto_tx(CMD_LED_KEY_BLINK, payload, sizeof(payload), 1);
 }
 

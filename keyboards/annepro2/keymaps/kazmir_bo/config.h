@@ -58,6 +58,13 @@
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_NEXUS
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_MULTINEXUS
 
+/* The C15 has 8 KB of RAM. Since QMK's USB control buffer grew to a whole packet (62 bytes more), this keymap is 36 bytes
+ * over there. Pixel Flow keeps 183 bytes of state, so the C15 goes without it. The C18 keeps the effect, and with it the
+ * numbers of the modes saved in EEPROM. */
+#ifdef KEYBOARD_annepro2_c15
+#    undef ENABLE_RGB_MATRIX_PIXEL_FLOW
+#endif
+
 /* Mode after the first flash or an EEPROM reset (RGB_MATRIX_STARTUP_MODE is the old name, QMK no longer reads it). */
 #define RGB_MATRIX_DEFAULT_MODE RGB_MATRIX_SOLID_COLOR
 

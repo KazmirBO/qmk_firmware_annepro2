@@ -209,7 +209,8 @@ static uint16_t history_max(void) {
 static void display_task(void) {
     static const ap2_led_t off = {.p.blue = 0x10, .p.green = 0x10, .p.red = 0x10, .p.alpha = 0xff};
     while (display_todo) {
-        if (ap2_led_tx_space() < (display_set ? DISPLAY_SET_SIZE : DISPLAY_UNSET_SIZE)) return; /* next scan */
+        /* Like the other periodic writers, leave AP2_LED_TX_RESERVE to the short commands (ap2_led.h). */
+        if (ap2_led_tx_space() < (display_set ? DISPLAY_SET_SIZE : DISPLAY_UNSET_SIZE) + AP2_LED_TX_RESERVE) return; /* next scan */
         const uint8_t i = __builtin_ctz(display_todo);
         if (display_set) {
             ap2_led_sticky_set_key(0, 1 + i, i < display_lit ? display_color : off);
