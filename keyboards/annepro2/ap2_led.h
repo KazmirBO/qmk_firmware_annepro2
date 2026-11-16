@@ -82,10 +82,25 @@ uint16_t ap2_led_tx_space(void);
 /* Room that the long or periodic messages (rgb_matrix rows, the battery indicator, the LED MCU check) leave in that
  * queue for the short commands, which are written at once. The longest burst is one key press that switches the LEDs
  * on in a layer: 30 01 (6 B), LED on (3 copies, 15 B), the mask reset and the layer colour (9 B each) and the key
- * itself (6 B), 45 B. */
+ * itself (6 B), 45 B. A layer key that resolves in the same scan (hold on other key press) can put its 9-byte layer
+ * colour in front of that burst, 53 B in all; the write then waits for at most 5 bytes, under half a millisecond. */
 #ifndef AP2_LED_TX_RESERVE
 #    define AP2_LED_TX_RESERVE 48
 #endif
+/* The LED MCU (Shine) reads its UART into a 32-byte input queue, which lasts 2.8 ms at 115200 baud, in the thread that
+ * also runs the commands. A blink stops that thread for up to 10 ms while it waits for the old blink thread, and the
+ * reply to a second status command in a row (LED on right after manual mode) for about 3 ms while its own 32-byte
+ * output queue drains. ap2_led_hold_rx() is called after such a command: the rgb_matrix rows and the battery
+ * indicator then wait until `ms` after the command has left the queue here, so that they do not overflow the LED MCU's
+ * input queue. */
+#ifndef AP2_LED_BLINK_HOLD_MS
+#    define AP2_LED_BLINK_HOLD_MS 11
+#endif
+#ifndef AP2_LED_POWER_HOLD_MS
+#    define AP2_LED_POWER_HOLD_MS 8
+#endif
+void ap2_led_hold_rx(uint8_t ms);
+bool ap2_led_rx_held(void);
 /* rgb_matrix shows something: enabled, not dark while the USB host sleeps, not past RGB_MATRIX_TIMEOUT
  * (rgb_driver.c). */
 bool ap2_rgb_lit(void);

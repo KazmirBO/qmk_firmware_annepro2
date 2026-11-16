@@ -105,11 +105,6 @@ enum anne_pro_layers {
 };
 // clang-format on
 
-void keyboard_post_init_user(void) {
-    ap2_led_enable();
-    ap2_led_set_profile(7);
-}
-
 layer_state_t layer_state_set_user(layer_state_t state) {
     switch (get_highest_layer(state)) {
         case FN1:
@@ -121,7 +116,7 @@ layer_state_t layer_state_set_user(layer_state_t state) {
             ap2_led_set_foreground_color(0x00, 0x00, 0xFF);
             break;
         default:
-            // Reset back to the current profile
+            // Clear the mask
             ap2_led_reset_foreground_color();
             break;
     }

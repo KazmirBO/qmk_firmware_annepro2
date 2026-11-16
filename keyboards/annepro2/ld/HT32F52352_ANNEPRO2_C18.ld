@@ -23,10 +23,10 @@
  */
 
 /*
- * HT32F52342 w/ Anne Pro 2 bootloader memory setup.
+ * HT32F52352 (128 KiB flash, 16 KiB RAM) w/ Anne Pro 2 bootloader memory setup.
  */
 MEMORY {
-    flash0   : org = 0x00004000, len = 64k - 16k       /* firmware */
+    flash0   : org = 0x00004000, len = 64k - 16k       /* firmware; the 48 KiB of the C15 are kept on purpose */
     flash1   : org = 0x00000000, len = 0
     flash2   : org = 0x00000000, len = 0
     flash3   : org = 0x00000000, len = 0
@@ -90,3 +90,7 @@ REGION_ALIAS("HEAP_RAM", ram0);
 
 /* Generic rules inclusion.*/
 INCLUDE rules.ld
+
+/* bootloader_jump() (annepro2.c) leaves the IAP signature of the stock bootloader at 0x20001ffc, the same address as on
+   the C15. The C15 script ends RAM below it. Here the word is not reserved, and with some toolchains static data
+   reaches it; the write then lands in a variable, which does no harm, because the MCU resets right after it. */

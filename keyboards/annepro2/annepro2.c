@@ -115,6 +115,9 @@ static void ble_handle_frame(const uint8_t *f, uint16_t len) {
                 ble_ready   = true;
                 /* The BLE MCU also reports its version after it restarts, which clears the serial number. */
                 annepro2_ble_send_serial();
+                /* ... and its battery level, which starts at 100 % again; before the first level this changes
+                 * nothing. */
+                annepro2_battery_request_send();
             }
             break;
         default:
@@ -212,18 +215,27 @@ static void led_mcu_power(bool on) {
 #ifdef RGB_MATRIX_ENABLE
 /* With rgb_matrix the LED MCU is on exactly when rgb_matrix shows something (ap2_rgb_lit(): enabled, not asleep with
  * the USB host, not past RGB_MATRIX_TIMEOUT). Every change (the keys below, QK_RGB_MATRIX_*, the state restored from
- * EEPROM, user code, a key after the timeout) is followed here, so the two cannot drift apart. */
+ * EEPROM, user code, a key after the timeout) is followed here, so the two cannot drift apart. With a sticky key set
+ * (a Caps Lock indicator, the battery indicator) the LED MCU keeps its matrix and LED power on after CMD_LED_OFF to
+ * show that key, as the stock firmware does. */
 static bool     led_mcu_on;
 static uint16_t led_power_timer; /* the last power command; the LED timers are 16 bits, RAM is short on the C15 */
+static uint16_t led_check_timer;
 
 static void led_sync(bool force) {
     const bool on = ap2_rgb_lit();
     if (!force && on == led_mcu_on) return;
     led_mcu_on      = on;
     led_power_timer = timer_read();
-    if (on) ap2_led_set_manual_control(1); /* the colours come from rgb_matrix, not from the profiles of the LED MCU */
-    led_mcu_power(on);
-    if (on) ap2_rgb_resend_all(); /* only changed rows are sent, so make sure the LED MCU has every colour */
+    if (!on) {
+        led_mcu_power(false);
+        return;
+    }
+    ap2_led_set_manual_control(1); /* the colours come from rgb_matrix, not from the profiles of the LED MCU */
+    led_mcu_power(true);
+    ap2_led_hold_rx(AP2_LED_POWER_HOLD_MS); /* two status replies in a row */
+    led_check_timer = timer_read();         /* no third one from led_check_task() in the same scan */
+    ap2_rgb_resend_all(); /* only changed rows are sent, so make sure the LED MCU has every colour */
 }
 
 /*
@@ -231,7 +243,13 @@ static void led_sync(bool force) {
  * off, out of manual mode and without sticky keys or mask. While it should be on, 30 01 is sent every
  * AP2_LED_CHECK_MS; the LED MCU answers it with its status, and one that reports its matrix off is set up again. A
  * status shortly after a power command can still answer an older command and is not used. If the status still says
- * off after a few repairs in a row, it is not trusted until it reports the matrix on again.
+ * off after a few repairs in a row, it is not trusted until it reports the matrix on again. A status cannot tell a
+ * restarted LED MCU whose matrix a sticky key switched on (it then shows only the sticky keys) from a working one. So
+ * after a restart followed by a sticky key before the next check, only the sticky keys stay lit until the LEDs are next
+ * switched on (or, if it was only the battery indicator, until that goes out and the LED MCU reports its matrix off).
+ * After a restart while the LEDs are dark, the next switch-on does not resend the sticky keys, so a Caps Lock indicator
+ * stays off until Caps Lock changes. Only the first check after boot (or after the first lighting) sets the LED MCU up
+ * once more in any case (led_setup()).
  */
 #    ifndef AP2_LED_CHECK_MS
 #        define AP2_LED_CHECK_MS 1000
@@ -239,13 +257,27 @@ static void led_sync(bool force) {
 #    define AP2_LED_STATUS_SETTLE_MS 100
 #    define AP2_LED_MAX_REPAIRS 3
 
-static uint16_t led_check_timer;
-static uint8_t  led_repairs;
+static uint8_t led_repairs;
+static bool    led_setup_checked;
+
+/* Everything the LED MCU loses in a restart. */
+static void led_setup(void) {
+    led_sync(true);
+    led_update_kb(host_keyboard_led_state()); /* sticky keys of the keymap, such as a Caps Lock indicator */
+    layer_state_set_kb(layer_state);          /* the layer colour of the keymap */
+}
 
 static void led_check_task(void) {
     if (!led_mcu_on || timer_elapsed(led_check_timer) < AP2_LED_CHECK_MS) return;
     if (ap2_led_tx_space() < PROTO_TX_MESSAGE_SIZE(1) + AP2_LED_TX_RESERVE) return; /* next scan */
     led_check_timer = timer_read();
+    if (!led_setup_checked) {
+        /* An LED MCU that started after the setup in keyboard_post_init_kb() and got a sticky key first reports its
+         * matrix on, but shows only that key; the first check therefore sets it up once more. */
+        led_setup_checked = true;
+        led_setup();
+        return;
+    }
     ap2_led_set_manual_control(1);
 }
 
@@ -257,9 +289,7 @@ static void led_status_received(void) {
     }
     if (led_repairs >= AP2_LED_MAX_REPAIRS) return;
     led_repairs++;
-    led_sync(true);
-    led_update_kb(host_keyboard_led_state()); /* sticky keys of the keymap, such as a Caps Lock indicator */
-    layer_state_set_kb(layer_state);          /* the layer colour of the keymap */
+    led_setup();
 }
 #endif
 
@@ -398,8 +428,9 @@ static void usb_wrap_driver(void) {
     chibios_driver.send_extra    = usb_proxy_extra;
 }
 
+static bool powered_down; /* cleared by every suspend_wakeup_init_quantum() */
+
 static void usb_suspend_task(void) {
-    static bool powered_down;
     if (USB_DRIVER.state != USB_SUSPENDED) {
         usb_gone         = false; /* reset, configured or resumed: a host is there again */
         usb_wake_pending = false;
@@ -411,7 +442,7 @@ static void usb_suspend_task(void) {
     if (usb_keys_down && (usb_wake_pending || usb_gone) && usb_bus_asleep() && timer_elapsed(usb_wake_signal) >= AP2_USB_WAKE_RETRY_MS) usb_signal_wakeup();
     if (!usb_host_asleep() || annepro2_ble_is_active()) {
         /* Switched to Bluetooth, or no host after all: undo the power down here, no USB wakeup will do it. */
-        if (powered_down && USB_DRIVER.state == USB_SUSPENDED) suspend_wakeup_init_quantum();
+        if (powered_down && USB_DRIVER.state != USB_ACTIVE) suspend_wakeup_init_quantum();
         powered_down = false;
         return;
     }
@@ -436,10 +467,10 @@ void housekeeping_task_kb(void) {
         ble_saved_report = *keyboard_report;
         ble_saved_mods   = get_mods();
     }
-    housekeeping_task_user();
 }
 
 void suspend_wakeup_init_kb(void) {
+    powered_down = false; /* LEDs and indicators are back: a later suspend powers down again */
     /* Not after a switch to Bluetooth in this loop: then there is no state saved for it yet. */
     if (ble_state_saved && annepro2_ble_is_active()) {
         *keyboard_report = ble_saved_report;
@@ -589,9 +620,9 @@ static const ap2_led_t ap2_red = {
 };
 
 static void unpair_now(uint8_t row, uint8_t col) {
-    /* Back to the USB driver first: the switch sends an empty report to the BLE MCU, and a report makes a BLE MCU that
-     * is neither connected nor advertising advertise again. Sent after the unpair commands, it would leave the BLE MCU
-     * advertising for a new pairing. */
+    /* Back to the USB driver first: the switch sends an empty report to the BLE MCU if the last report to it held a
+     * key, and a report makes a BLE MCU that is neither connected nor advertising advertise again. Sent after the
+     * unpair commands, it would leave the BLE MCU advertising for a new pairing. */
     annepro2_ble_disconnect();
     annepro2_ble_unpair();
     ap2_led_cancel_blink();
@@ -671,9 +702,12 @@ static void bt_switch_task(void) {
 #endif /* AP2_BT_SWITCH */
 
 /*
- * With no USB host to serve, no key for AP2_IDLE_AFTER_MS and the LEDs dark, the keyboard scans every AP2_IDLE_SCAN_MS
- * and the MCU sleeps in between (ChibiOS idles with WFI) instead of scanning flat out on the battery. The first key
- * after the pause is seen at most AP2_IDLE_SCAN_MS late; 0 turns this off.
+ * With no USB host to serve (none, or a sleeping one while the reports go to Bluetooth), the keyboard waits
+ * AP2_AWAKE_SCAN_MS after each scan while a key is recent, held or the LEDs are lit: wait_us() of the matrix polls a
+ * timer and does not sleep, so without this wait the MCU would scan flat out. With no key for AP2_IDLE_AFTER_MS, no key
+ * held and the LEDs dark, it scans every AP2_IDLE_SCAN_MS instead. The MCU sleeps in between (ChibiOS idles with WFI).
+ * The first key after the pause is seen at most AP2_IDLE_SCAN_MS late; AP2_IDLE_SCAN_MS 0 turns both waits off and
+ * AP2_AWAKE_SCAN_MS 0 only the short one. A USB host that is on gets no wait here.
  */
 #ifndef AP2_IDLE_SCAN_MS
 #    define AP2_IDLE_SCAN_MS 10
@@ -682,13 +716,35 @@ static void bt_switch_task(void) {
 #    define AP2_IDLE_AFTER_MS 10000
 #endif
 
+#ifndef AP2_AWAKE_SCAN_MS
+#    define AP2_AWAKE_SCAN_MS 1
+#endif
+
+#if AP2_IDLE_SCAN_MS > 0
+static bool idle_key_down(void) {
+    for (uint8_t row = 0; row < MATRIX_ROWS; row++) {
+        if (matrix_get_row(row)) return true;
+    }
+    return false;
+}
+#endif
+
 static void idle_task(void) {
 #if AP2_IDLE_SCAN_MS > 0
-    if (annepro2_usb_host_in_use() || last_input_activity_elapsed() < AP2_IDLE_AFTER_MS) return;
+    /* A USB host that is on, or a sleeping one that gets the reports: usb_suspend_task() has its own rhythm. */
+    if (USB_DRIVER.state == USB_ACTIVE || (annepro2_usb_host_in_use() && !annepro2_ble_is_active())) return;
+    bool awake = last_input_activity_elapsed() < AP2_IDLE_AFTER_MS || idle_key_down();
 #    ifdef RGB_MATRIX_ENABLE
-    if (ap2_rgb_lit()) return; /* a lit effect keeps its frame rate */
+    awake = awake || ap2_rgb_lit(); /* a lit effect keeps its frame rate */
 #    endif
-    wait_ms(AP2_IDLE_SCAN_MS);
+    if (!awake) {
+        wait_ms(AP2_IDLE_SCAN_MS);
+    }
+#    if AP2_AWAKE_SCAN_MS > 0
+    else {
+        wait_ms(AP2_AWAKE_SCAN_MS);
+    }
+#    endif
 #endif
 }
 
@@ -796,8 +852,13 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_NEXT_INTENSITY:
+                /* The LED MCU dims a colour when it receives it, so send again what it holds. */
                 ap2_led_next_intensity();
                 leds_reset_foreground();
+                led_update_kb(host_keyboard_led_state());
+#ifdef RGB_MATRIX_ENABLE
+                ap2_rgb_resend_all();
+#endif
                 return false;
 
             case KC_AP_LED_SPEED:

@@ -47,7 +47,7 @@
 
 #    define AP2_ADC_CHANNEL 7
 #    define AP2_ADC_SAMPLES 8
-#    define AP2_ADC_WAIT_LOOP 8000 /* about 1 ms at 48 MHz, a conversion takes tens of microseconds */
+#    define AP2_ADC_WAIT_LOOP 8000 /* about 1.5-2 ms at 48 MHz, a conversion takes tens of microseconds */
 
 /* After this many failed readings in a row the measurement is skipped for AP2_BATTERY_BACKOFF_MS, so that a dead ADC
  * does not stall the matrix scan every time. */
@@ -58,6 +58,8 @@ static uint8_t  fail_count;
 static uint32_t fail_timer;
 
 _Static_assert(AP2_BATTERY_HISTORY >= 1 && AP2_BATTERY_HISTORY <= 255, "AP2_BATTERY_HISTORY must be 1-255");
+/* raw * AP2_BATTERY_SCALE_NUM is computed in 32 bits for a 12-bit raw reading. */
+_Static_assert(AP2_BATTERY_SCALE_NUM <= 0xFFFFFFFFu / 4095u, "AP2_BATTERY_SCALE_NUM must be at most 1048832");
 
 static bool     send_now;
 static uint32_t sample_timer;
@@ -208,6 +210,7 @@ static uint16_t history_max(void) {
 /* The indicator uses sticky keys, so it also works with the LEDs off. */
 static void display_task(void) {
     static const ap2_led_t off = {.p.blue = 0x10, .p.green = 0x10, .p.red = 0x10, .p.alpha = 0xff};
+    if (ap2_led_rx_held()) return; /* next scan (ap2_led.h) */
     while (display_todo) {
         /* Like the other periodic writers, leave AP2_LED_TX_RESERVE to the short commands (ap2_led.h). */
         if (ap2_led_tx_space() < (display_set ? DISPLAY_SET_SIZE : DISPLAY_UNSET_SIZE) + AP2_LED_TX_RESERVE) return; /* next scan */

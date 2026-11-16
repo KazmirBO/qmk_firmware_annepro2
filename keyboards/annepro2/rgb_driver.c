@@ -82,6 +82,7 @@ bool ap2_rgb_lit(void) {
 }
 
 void ap2_rgb_flush_pending(void) {
+    if (ap2_led_rx_held()) return; /* the LED MCU does not read its UART for a while (ap2_led.h) */
     /* With the LEDs dark the LED MCU is off (annepro2.c), so there is nothing to heal. */
     if (!pending_rows && ap2_rgb_lit() && timer_elapsed32(refresh_timer) >= AP2_LED_REFRESH_MS) {
         refresh_timer = timer_read32();

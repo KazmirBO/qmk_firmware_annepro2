@@ -124,6 +124,23 @@ uint16_t ap2_led_tx_space(void) {
     return space;
 }
 
+static bool     rx_held;
+static uint16_t rx_hold_end;
+
+void ap2_led_hold_rx(uint8_t ms) {
+    /* The command leaves after the bytes queued before it, 87 us each. */
+    const uint16_t end = timer_read() + (SERIAL_BUFFERS_SIZE - ap2_led_tx_space()) / 11 + 1 + ms;
+    if (!rx_held || timer_expired(end, rx_hold_end)) rx_hold_end = end;
+    rx_held = true;
+}
+
+/* Polled every scan (ap2_rgb_flush_pending(), display_task() of the battery indicator), so the 16-bit end time cannot
+ * wrap unseen. */
+bool ap2_led_rx_held(void) {
+    if (rx_held && timer_expired(timer_read(), rx_hold_end)) rx_held = false;
+    return rx_held;
+}
+
 void ap2_led_set_manual_control(uint8_t manual) {
     uint8_t payload[] = {manual};
     proto_tx(CMD_LED_SET_MANUAL, payload, sizeof(payload), 1);
@@ -137,6 +154,7 @@ static uint32_t blink_end;
 void ap2_led_blink(uint8_t row, uint8_t col, ap2_led_t color, uint8_t count, uint8_t hundredths) {
     uint8_t payload[] = {row, col, color.p.blue, color.p.green, color.p.red, color.p.alpha, count, hundredths};
     proto_tx(CMD_LED_KEY_BLINK, payload, sizeof(payload), 1);
+    ap2_led_hold_rx(AP2_LED_BLINK_HOLD_MS); /* a blink still running is waited for */
     blink_key = row << 4 | col;
     /* 2 * count phases of hundredths * 10 ms each, and a quarter more: the LED MCU sleeps in whole ticks. */
     blink_end = timer_read32() + (uint32_t)count * hundredths * 25;
@@ -159,6 +177,7 @@ void ap2_led_cancel_blink(void) {
     blink_key          = BLINK_NONE;
     if (timer_expired32(timer_read32(), blink_end)) return; /* it has ended by itself */
     proto_tx(CMD_LED_KEY_BLINK, payload, sizeof(payload), 1);
+    ap2_led_hold_rx(AP2_LED_BLINK_HOLD_MS);
 }
 
 void ap2_led_set_foreground_color(uint8_t red, uint8_t green, uint8_t blue) {
