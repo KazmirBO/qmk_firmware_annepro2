@@ -47,6 +47,11 @@
 // Flash configuration
 #define EXTERNAL_FLASH_SPI_SLAVE_SELECT_PIN A3
 #define EXTERNAL_FLASH_SPI_CLOCK_DIVISOR 16
+/* The flash chip is not identified (the stock firmware accepts 14 different JEDEC ids, docs/03-mcu.md section 9).
+ * QMK's flash_erase_block() always sends 0xD8, which erases 64 KiB on the usual NOR chips whatever
+ * EXTERNAL_FLASH_BLOCK_SIZE says, so every wear-leveling erase (first start, EEPROM reset, a full write log) also
+ * clears the stock configuration, key maps and uptime log at 0x0000-0xFFFF and holds the main loop for the
+ * erase. */
 #define EXTERNAL_FLASH_PAGE_SIZE 256
 #define EXTERNAL_FLASH_SECTOR_SIZE 4096
 #define EXTERNAL_FLASH_BLOCK_SIZE 4096

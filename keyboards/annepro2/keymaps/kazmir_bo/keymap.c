@@ -43,7 +43,13 @@ const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     /* KC_AP2_BT_UNPAIR (40 05) deletes the bonds of all four slots, so it acts only after being held for 3 s
      * (AP2_BLE_UNPAIR_HOLD_MS). Pairing a slot again replaces only the bond of that slot. RM_SPDU sets the speed of the rgb_matrix effect
      * (Shift: slower); KC_AP_LED_SPEED would only set the speed of the LED MCU's own profiles, which do not run while
-     * rgb_matrix drives the LEDs. */
+     * rgb_matrix drives the LEDs.
+     * QK_BOOT puts all three MCUs into IAP, so it acts only once Esc, pressed on FN2, has been held for 1 s
+     * (BOOT_HOLD_MS below; FN2 may be released meanwhile); a short press does nothing.
+     * KC_AP_LED_NEXT_INTENSITY dims on the LED MCU: each press takes another 30 off every colour channel (7 steps; the
+     * 8th press gives full brightness again), on top of the rgb_matrix brightness of KC_AP_RGB_VAD/VAI. It applies to
+     * the whole board at once, the Caps Lock key included, shifts mixed colours, and is forgotten when the LED MCU
+     * loses power. */
     [FN2] = LAYOUT_60_ansi(
         QK_BOOT, KC_AP2_BT1, KC_AP2_BT2, KC_AP2_BT3, KC_AP2_BT4, KC_AP2_BT_UNPAIR, KC_AP2_USB, KC_AP_LED_NEXT_INTENSITY, KC_AP2_BATT, KC_AP_RGB_MOD, KC_AP_RGB_TOG, KC_AP_RGB_VAD, KC_AP_RGB_VAI, RM_SPDU,
         _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______, _______,
@@ -93,4 +99,26 @@ bool led_update_user(led_t leds) {
         ap2_led_unset_sticky_key(2, 0);
     }
     return true;
+}
+
+/* QK_BOOT puts all three MCUs into IAP, so it acts only once Esc, pressed on FN2, has been held for BOOT_HOLD_MS (FN2
+ * itself may be released meanwhile): a roll from the Menu key (hold = FN2) onto Esc must not end in the bootloader. */
+#define BOOT_HOLD_MS 1000
+static bool     boot_held;
+static uint16_t boot_timer;
+
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (keycode == QK_BOOT) {
+        boot_held  = record->event.pressed;
+        boot_timer = timer_read();
+        return false;
+    }
+    return true;
+}
+
+void matrix_scan_user(void) {
+    if (boot_held && timer_elapsed(boot_timer) >= BOOT_HOLD_MS) {
+        boot_held = false;
+        reset_keyboard();
+    }
 }

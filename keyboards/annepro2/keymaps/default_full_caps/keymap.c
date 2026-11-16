@@ -118,3 +118,10 @@ bool led_update_user(led_t leds) {
 
     return true;
 }
+
+// The LED keys clear the mask and then call this (leds_reset_foreground() in annepro2.c): put the Caps Lock colour
+// back.
+layer_state_t layer_state_set_user(layer_state_t state) {
+    led_update_user(host_keyboard_led_state());
+    return state;
+}

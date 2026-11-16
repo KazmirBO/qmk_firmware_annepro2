@@ -31,10 +31,12 @@
 /* A tap followed by a hold of the same dual-role key always activates the hold action. */
 #define QUICK_TAP_TERM 0
 #define HOLD_ON_OTHER_KEY_PRESS
+/* The hold is settled on the press of the next key, so PERMISSIVE_HOLD (c18/config.h) never comes into play here. */
 
 #define NO_ACTION_ONESHOT
-#define NO_MUSIC_MODE
 
+/* 255 allows a full-white board, which the author of the LED MCU firmware (Shine, matrix.c) gives as about 0.5 A,
+ * against the 500 mA a USB port may be asked for; QMK's default is 200. */
 #define RGB_MATRIX_MAXIMUM_BRIGHTNESS 255
 
 /* LEDs off while the USB host sleeps (annepro2.c powers down) and after 3 minutes without a key press; the LED MCU is
@@ -48,8 +50,6 @@
 #undef ENABLE_RGB_MATRIX_SPLASH
 #undef ENABLE_RGB_MATRIX_SOLID_SPLASH
 #undef ENABLE_RGB_MATRIX_SOLID_MULTISPLASH
-#undef ENABLE_RGB_MATRIX_DIGITAL_RAIN
-#undef ENABLE_RGB_MATRIX_TYPING_HEATMAP
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_SIMPLE
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_WIDE

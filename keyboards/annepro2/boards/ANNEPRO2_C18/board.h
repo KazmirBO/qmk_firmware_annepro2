@@ -24,9 +24,7 @@
  */
 #define BOARD_NAME "Anne Pro 2"
 
-#define HT32F52342
-
-#define FLASH_SIZE (0x10000 - 0x4000)  // 64kB - 16kB
+#define HT32F52352
 
 #if !defined(_FROM_ASM_)
 #ifdef __cplusplus

@@ -8,7 +8,7 @@
  * Implementation of a robust serial protocol which can handle single dropped
  * characters during transit without locking.
  *
- * At 115200, transmitting the shortest message takes 0.043ms, at 9600 - 0.52ms.
+ * At 115200, transmitting the shortest message (5 bytes) takes 0.43ms, at 9600 - 5.2ms.
  *
  */
 

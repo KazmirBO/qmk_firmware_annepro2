@@ -198,7 +198,8 @@ void annepro2_ble_pair(uint8_t port) {
     /* The pairing command replaces a connect attempt. If that attempt had moved the reports away from a USB host, they
      * go back to it now, where they stay while nothing has paired: otherwise they would be left on a link that never
      * came up, with no timeout to bring them back. This comes before the command, because the empty report that the
-     * switch sends makes a BLE MCU that is neither connected nor advertising advertise on its own. */
+     * switch can send (when the last report to the BLE MCU held a key) makes a BLE MCU that is neither connected nor
+     * advertising advertise on its own. */
     if (connect_pending && annepro2_usb_host_in_use()) annepro2_ble_disconnect();
     ble_send(BLE_CMD_BLE, BLE_BLE_PAIR, &port, 1);
     ble_capslock    = false; /* a new host: its state is unknown until it writes its LED report */
@@ -253,6 +254,7 @@ bool annepro2_ble_task(void) {
  * turned on. A host that is still connected gets them at once. After a disconnect the BLE MCU does not advertise on its
  * own; it starts advertising when the next report arrives (5 s for its bonded hosts, 60 s without bonds). */
 void annepro2_ble_use_driver(void) {
+    connect_pending = false; /* the switch selects Bluetooth: no fall back to USB */
     ap2_ble_switch_ble_driver();
 }
 
