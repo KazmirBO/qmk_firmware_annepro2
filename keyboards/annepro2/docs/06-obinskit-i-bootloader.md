@@ -44,7 +44,7 @@ Kolumna „MCU 2.36” mówi, czy fabryczny odbiorca obsługuje polecenie (`02-p
 | `previewLight` | LED | `20 03` | tak |
 | `writeLightList` | MCU | `20 04` | tak |
 | `writeLightHoldOn` | MCU | `20 0d` | tak; przełącznik „Auto Sleep”, warunek odliczania do snu (`03-mcu.md` §7) |
-| `writeAudioVisualize` | LED | `20 11` | nie sprawdzono [N] |
+| `writeAudioVisualize` | LED | `20 11` | nie; LED tylko potwierdza ramkę od nadawcy 1 (`04-led.md` §3) |
 | `writeIndicatorBrightness` | MCU | `20 14` | nie |
 | `writeBacklightBrightness` | MCU | `20 15` | tak |
 | `readLedIndicatorLocation` / `writeLedIndicatorLocation` | MCU | `20 18` / `20 19` | nie |

@@ -1,6 +1,6 @@
 # Niewiadome
 
-Stan na 2026-11-13: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.md` §6) po uzupełnieniach z 2026-11-03 (`09-metoda-i-weryfikacja.md` §8) i 2026-11-13 (`09-metoda-i-weryfikacja.md` §9). Przy każdym punkcie: co by go rozstrzygnęło.
+Stan na 2026-11-16: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.md` §6) po uzupełnieniach z 2026-11-03 (`09-metoda-i-weryfikacja.md` §8) i 2026-11-13 (`09-metoda-i-weryfikacja.md` §9) oraz z przeglądu kodu C18 z 2026-11-16 (§2, §4 i §6). Przy każdym punkcie: co by go rozstrzygnęło.
 
 ## 1. Płytka i piny MCU
 
@@ -21,6 +21,8 @@ Stan na 2026-11-13: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Czy przy mapie z SPI warstwa 4 (SPI 0x2000, której kod nigdy nie zapisuje) ma treść z fabryki | odczyt SPI przez `03 01` |
 | Bootloader MCU (0x0000-0x3FFF), rozmiar strony flash i to, czy 0x3E00 to ostatnia strona obszaru bootloadera | zrzut flash przez debuger albo karta katalogowa (rozmiar strony) |
 | Znaczenie bajtów +0, +1 i u16 +4 (0x3311) rekordu urządzenia (`03-mcu.md` §12) | kod bootloadera albo ObinsKit |
+| Co peryferium USB HT32 zgłasza po wyjęciu kabla przy skonfigurowanym hoście: zawieszenie (SUSPIF, stan USB_SUSPENDED), reset czy nic; od tego zależy, czy port uznaje host za uśpiony (`annepro2_usb_host_in_use()`) | debuger albo dioda sterowana z `usb_bus_asleep()` przy wyjęciu kabla |
+| Czy bit GENRSM w rejestrze USBCSR kasuje się sam po wysłaniu sygnału wznowienia; sterownik ChibiOS-Contrib go ustawia i nie kasuje (kasuje go tylko reset magistrali), więc od tego zależy, czy ponowiony co 500 ms sygnał budzenia coś wysyła | podręcznik HT32F52342/52352 (rejestr USBCSR) albo test: uśpiony host, który nie reaguje na pierwszy sygnał, przytrzymany klawisz, obserwacja analizatorem USB |
 | Cel przełączania typu ramki pingu LED (`0x12`/`0x10`) | kod bootloadera LED albo podsłuch USART0 przy starcie |
 
 ## 3. LED 2.33
@@ -37,7 +39,8 @@ Stan na 2026-11-13: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 | Bootloader BLE, protokół IAP i odwzorowanie bazy 0x4000 z bootloadera na flash od fizycznego 0x2000; czy wgrywanie obrazu BLE przez AnnePro2-Tools jest bezpieczne; czy bootloader, jak bootloader szeregowy TI, sprawdza CRC pod plik+0x90 i zapisuje jego kopię pod plik+0x92, nadpisując dwa bajty danych inicjujących (`05-ble.md` §2) | zrzut flash przez debuger CC254x albo nagranie aktualizacji z ObinsKit |
 | Znaczenie stałej pod plik+0x619A (jako u16: 27 000, 44 000, 50 000, 54 000) i rekordów strony informacyjnej od `X:7848` | dalsza analiza `1:9F40`-`1:A0B0` albo odczyt strony informacyjnej z urządzenia |
 | Czy 15 B ujawnianych przy odczycie raportu wyjściowego ID 2 może zawierać materiał kluczowy (`05-ble.md` §6) | prześledzenie bufora odpowiedzi ATT albo kontrolowany test na urządzeniu |
-| Napięcie odniesienia i dzielnik w przeliczeniu `01 05` (3,1 V i 2:1 pochodzą z kodu, nie z pomiaru) | pomiar multimetrem przy znanym odczycie ADC |
+| Napięcie odniesienia i dzielnik w przeliczeniu `01 05`: 3,1 V i 2:1 pochodzą z kodu BLE, nie z pomiaru; fabryczny MCU liczy ten sam odczyt ze współczynnikiem 2,02 (`03-mcu.md` §8 [I]), czyli o 1 % wyżej. Port nie stosuje współczynnika 2,02: wysyła odczyt ADC (domyślnie bez skalowania, poniżej 3,6 V przesunięty korektą `AP2_BATTERY_EMPTY_MV`), więc host liczy z 2,0 | pomiar multimetrem przy znanym odczycie ADC; jeśli zgadza się 2,02, w keymapie `AP2_BATTERY_SCALE_NUM` 101 i `AP2_BATTERY_SCALE_DEN` 100 |
+| Czy raporty wysłane do układu BLE bez połączenia (kolejka z `05-ble.md` §6) zostają w kolejce po końcu rozgłaszania i trafiają do hosta, który połączy się później, także po powrocie raportów na USB; jaka jest głębokość kolejki | test: tap slotu bez dostępnego hosta, kilka znaków, powrót na USB po 6 s, potem włączenie Bluetooth na hoście i obserwacja, czy znaki się pojawią |
 | Dystrybucja kluczy, rozmiar klucza i parametry połączenia przyjęte przez hosta | nagranie `btmon` (`08-testy-na-sprzecie.md` §3.2) |
 | Pełna logika wejść P0.0 i P0.1 (`4:8F30`, `4:8EC7`, tryb zależny od `X:0846`) | dalsza analiza |
 | Czy kod `60 04` jest naprawdę martwy; wniosek opiera się na braku stałych wywołań uzbrajających zdarzenie 0x0008 | szukanie wywołań pośrednich albo test: `60 04` wysłane do BLE i obserwacja raportów u hosta |
@@ -55,10 +58,12 @@ Stan na 2026-11-13: lista z weryfikacji z 2026-10-27 (`09-metoda-i-weryfikacja.m
 
 | Pytanie | Co rozstrzygnie |
 |---|---|
-| Zgodność procentu baterii z napięciem ogniwa i działanie korekty `AP2_BATTERY_EMPTY_MV` przy niskim napięciu | pomiar multimetrem, w tym tuż po wyłączeniu się klawiatury |
+| Zgodność procentu baterii z napięciem ogniwa i działanie korekty `AP2_BATTERY_EMPTY_MV` przy niskim napięciu; czy pierwszy poziom, ustalony z 5 odczytów w pierwszych około 10 s po starcie (start LED, rozgłaszanie BLE), nie jest niższy od poziomu po kilku minutach, skoro BLE go potem nie podnosi (`05-ble.md` §9) | pomiar multimetrem, w tym tuż po wyłączeniu się klawiatury; porównanie poziomu u hosta zaraz po włączeniu z poziomem na wskaźniku `KC_AP2_BATT` (`FN2` + `8`, co 10 %) po kilkunastu minutach pracy |
+| Który układ SPI NOR jest na płytce C18 i co kasuje polecenie `0xD8`, którego QMK używa przy każdym kasowaniu wear leveling (pierwszy start, reset EEPROM, pełny dziennik zapisu, czyli co około 127 zapisów); na typowych układach to blok 64 KiB od adresu 0, z konfiguracją, mapami i dziennikiem czasu pracy oryginału (`03-mcu.md` §9), a pętla główna czeka na koniec kasowania (sterownik czeka najwyżej 1 s) | oznaczenie układu na płytce albo odczyt identyfikatora `0x9F` |
 | `40 04` (i `40 01`) zawsze najpierw zrywa trwające łącze: `2:BF3D` przy stanie 6 woła `2:9638` z powodem 0x13 [O, 2026-11-13], więc żywe łącze nie przetrwa tapnięcia slotu, a `20 0c` przyjdzie ponownie tylko po nowym połączeniu. Rozgłaszanie rusza po zakończeniu łącza (`05-ble.md` §7) [O, 2026-11-13]. Czy dany host łączy się ponownie w 5 s rozgłaszania, zanim `AP2_BLE_CONNECT_TIMEOUT_MS` (6 s) wróci na USB [N] | tap slotu przy połączonym hoście i obserwacja, czy pisanie zostaje na BLE (`08-testy-na-sprzecie.md` §3.1) |
 | Czy obrazy w `do-wgrania/wycofanie/` były identyczne z buildami swoich commitów; katalog usunięto 2026-11-04, więc bez jego kopii pytania nie da się już rozstrzygnąć | odzyskanie katalogu i build starszych commitów w osobnym drzewie |
 | Czy układ BLE przyjmuje numer seryjny od portu (`AP2_BLE_SERIAL`), czy rekord pod `0x3E00` na danym egzemplarzu zawiera UDID i czy ramka budząca w formacie oryginału działa tak jak poprzednia | wgranie `6c03dfe813` i odczyt Device Information (`08-testy-na-sprzecie.md` §3.1) |
+| Ile statycznego RAM-u zajmuje obraz z zestawu narzędzi właściciela: w kontenerze z `arm-none-eabi-gcc` 13.2.1 (Ubuntu 24.04) te same źródła zajmują około 400 B mniej (`07-port-qmk-i-narzedzia.md` §5). Od tego zależy zapas na C15 oraz to, czy na C18 dane statyczne sięgają słowa `0x20001ffc`, pod które `bootloader_jump()` zapisuje sygnaturę IAP tuż przed resetem (zapis w zmienną nie szkodzi, bo zaraz jest reset) | `arm-none-eabi-nm .build/annepro2_c18_kazmir_bo.elf \| grep __bss_end__` po zbudowaniu tym zestawem; to samo dla `c15_default` |
 
 ## 7. Rozstrzygnięte 2026-11-03
 
