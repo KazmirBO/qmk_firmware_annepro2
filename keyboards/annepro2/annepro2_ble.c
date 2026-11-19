@@ -47,14 +47,14 @@ static host_driver_t ap2_ble_driver = {ap2_ble_leds, ap2_ble_keyboard, NULL, ap2
  *
  *   [0x7b]       sync start
  *   [type]       0x12 single frame, 0x10 frame with a fragment counter (group 0x02, as in the stock firmware)
- *   [routing]    (target << 4) | source  =  0x53 = McuBle(5):McuMain(3)
+ *   [routing]    (target << 4) | source  =  0x53 = McuBle(5):McuMain(3); ble_mcu_bootload below uses 0x51 (source 1)
  *   [seq]        0x00 for type 0x12; 0x10 for type 0x10 (one fragment, index 0)
- *   [len lo]     length, little-endian: 2 (l2_cmd, cmd) + data bytes
+ *   [len lo]     length, little-endian: 2 (cmd, sub) + data bytes
  *   [len hi]
  *   [0x00]       always zero; the BLE MCU does not check this byte
  *   [0x7d]       sync end
- *   [l2_cmd]     layer-2 command group: 0x01=GLOBAL, 0x02=FW, 0x10=KEYBOARD, 0x40=BLE
- *   [cmd]        specific command within group
+ *   [cmd]        command group: 0x01=GLOBAL, 0x02=FW, 0x10=KEYBOARD, 0x40=BLE
+ *   [sub]        specific command within the group
  *   [data...]    optional payload bytes
  *
  * ble_send() builds every single frame from cmd, sub and the data, so the length always matches the payload.
@@ -113,12 +113,12 @@ static int8_t ble_slot = -1;
  * when that ends, so the flag is dropped after AP2_BLE_PAIR_TIMEOUT_MS, or a later, unrelated connection would move the
  * reports to Bluetooth. */
 static bool pair_pending;
-/* A connect command moved the reports from a USB host to Bluetooth and no host has connected since. The BLE MCU advertises
- * for 5 s and reports nothing when that ends, so after AP2_BLE_CONNECT_TIMEOUT_MS (0: never) the reports go back to the
- * USB host instead of staying on a link that never came up. */
+/* A connect command moved the reports from a USB host to Bluetooth and no host has connected since. The BLE MCU
+ * advertises for 5 s and reports nothing when that ends, so after AP2_BLE_CONNECT_TIMEOUT_MS (0: never) the reports go
+ * back to the USB host instead of staying on a link that never came up. */
 static bool connect_pending;
-/* Start of the pairing or of the connect attempt, whichever flag is set (never both), as a 16-bit timer: RAM is short on
- * the C15. */
+/* Start of the pairing or of the connect attempt, whichever flag is set (never both), as a 16-bit timer: RAM is short
+ * on the C15. */
 static uint16_t ble_timer;
 _Static_assert(AP2_BLE_PAIR_TIMEOUT_MS < 0x10000 && AP2_BLE_CONNECT_TIMEOUT_MS < 0x10000, "the BLE timeouts are 16-bit");
 /* Slot of the last annepro2_ble_broadcast() (-1: none). */
@@ -237,7 +237,8 @@ void annepro2_ble_connect(uint8_t port) {
     ap2_ble_switch_ble_driver();
 }
 
-/* Drop the pairing and connect flags whose time has run out. Returns true when the reports went back to the USB host. */
+/* Drop the pairing and connect flags whose time has run out. Returns true when the reports went back to the USB
+ * host. */
 bool annepro2_ble_task(void) {
     if (pair_pending && timer_elapsed(ble_timer) >= AP2_BLE_PAIR_TIMEOUT_MS) pair_pending = false;
     if (connect_pending && timer_elapsed(ble_timer) >= AP2_BLE_CONNECT_TIMEOUT_MS) {

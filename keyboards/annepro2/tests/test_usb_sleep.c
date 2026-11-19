@@ -50,6 +50,7 @@ static void send_release(void) {
 /* One pass of the main loop while the host sleeps: usb_suspend_task() waits 17 ms when it powers down. */
 static void scan(void) {
     usb_suspend_task();
+    CHECK(!(usb_wake_pending && usb_gone)); /* idle, asked and waiting, or given up (annepro2.c) */
 }
 
 static void case_wrapping(void) {

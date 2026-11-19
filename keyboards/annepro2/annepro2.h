@@ -99,5 +99,9 @@ enum AP2KeyCodes {
     KC_AP2_BATT, /* shows the battery level on the number row (needs AP2_BLE_BATTERY) */
 };
 
+/* The four Bluetooth slots of the BLE MCU, one key each: the slot is the key code minus KC_AP2_BT1. */
+#define AP2_BLE_SLOTS 4
+_Static_assert(KC_AP2_BT4 - KC_AP2_BT1 + 1 == AP2_BLE_SLOTS, "the slot key codes must be consecutive, one per slot");
+
 /* A USB host is there: active, or asleep after it had configured the keyboard and not taken as gone (annepro2.c). */
 bool annepro2_usb_host_in_use(void);

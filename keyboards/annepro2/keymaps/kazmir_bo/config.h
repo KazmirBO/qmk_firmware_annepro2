@@ -35,8 +35,9 @@
 
 #define NO_ACTION_ONESHOT
 
-/* 255 allows a full-white board, which the author of the LED MCU firmware (Shine, matrix.c) gives as about 0.5 A,
- * against the 500 mA a USB port may be asked for; QMK's default is 200. */
+/* The full 255 is kept, which is also QMK's default (UINT8_MAX in rgb_matrix.h; docs/features/rgb_matrix.md shows 200
+ * only as an example). A full-white board draws about 0.5 A according to the author of the LED MCU firmware (Shine,
+ * matrix.c), against the 500 mA a USB port may be asked for. */
 #define RGB_MATRIX_MAXIMUM_BRIGHTNESS 255
 
 /* LEDs off while the USB host sleeps (annepro2.c powers down) and after 3 minutes without a key press; the LED MCU is
@@ -59,9 +60,9 @@
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_NEXUS
 #undef ENABLE_RGB_MATRIX_SOLID_REACTIVE_MULTINEXUS
 
-/* The C15 has 8 KB of RAM. Since QMK's USB control buffer grew to a whole packet (62 bytes more), this keymap is 36 bytes
- * over there. Pixel Flow keeps 183 bytes of state, so the C15 goes without it. The C18 keeps the effect, and with it the
- * numbers of the modes saved in EEPROM. */
+/* The C15 has 8 KB of RAM. Since QMK's USB control buffer grew to a whole packet (62 bytes more), this keymap is 36
+ * bytes over there. Pixel Flow keeps 183 bytes of state, so the C15 goes without it. The C18 keeps the effect, and with
+ * it the numbers of the modes saved in EEPROM. */
 #ifdef KEYBOARD_annepro2_c15
 #    undef ENABLE_RGB_MATRIX_PIXEL_FLOW
 #endif
