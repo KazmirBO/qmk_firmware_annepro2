@@ -86,7 +86,7 @@ Wynik: MCU 0x711 B, LED 6749 B. W danych MCU struktury procesów wskazują nazwy
 
 ## 6. Raport weryfikacji (2026-10-27)
 
-Każde twierdzenie dokumentacji sprzed przebudowy (kopia w `docs.bak-2026-10-27/`) sprawdzono ponownie u źródła, w czterech obszarach: MCU i LED (eksport Ghidry, objdump, bajty), BLE (listing Ghidry z rozwiązanymi stubami, bajty), ObinsKit i źródła zewnętrzne, port QMK z narzędziami (kod, `git`, buildy, testy). Wyniki z dowodami są w `analiza/wyniki/*.md`, a zestawienie z miejscem każdego twierdzenia w nowej dokumentacji w `analiza/rejestr-twierdzen.md`.
+Każde twierdzenie dokumentacji sprzed przebudowy (kopię w `docs.bak-2026-10-27/` usunięto 2026-11-04) sprawdzono ponownie u źródła, w czterech obszarach: MCU i LED (eksport Ghidry, objdump, bajty), BLE (listing Ghidry z rozwiązanymi stubami, bajty), ObinsKit i źródła zewnętrzne, port QMK z narzędziami (kod, `git`, buildy, testy). Wyniki z dowodami są w `analiza/wyniki/*.md`, a zestawienie z miejscem każdego twierdzenia w nowej dokumentacji w `analiza/rejestr-twierdzen.md`. Tabele 6.1 i 6.2 podają stan z 2026-10-27; późniejsze zmiany portu (np. P-022, P-029) są opisane w `07-port-qmk-i-narzedzia.md` §1 i §6.
 
 | Obszar | Potwierdzone | Poprawione | Obalone | Nieaktualne | Niesprawdzalne | Razem |
 |---|---|---|---|---|---|---|
