@@ -78,6 +78,7 @@ static inline void check_hex_(char *out, const unsigned char *p, size_t n) {
     } while (0)
 
 #define TEST_RESULT()                                                                                  \
-    (printf("RESULT %s checks=%d failed=%d known=%d fixed=%d\n", check_base_(__FILE__), check_total,   \
+    (check_failed += fake_overflow_failures ? 1 : 0, check_total++,                                    \
+     printf("RESULT %s checks=%d failed=%d known=%d fixed=%d\n", check_base_(__FILE__), check_total,   \
             check_failed, check_known, check_fixed),                                                   \
      check_failed ? 1 : 0)

@@ -8,7 +8,8 @@
 #define RGB_MATRIX_ENABLE
 #define RGB_MATRIX_SLEEP
 #define RGB_MATRIX_TIMEOUT 180000
-#define SERIAL_BUFFERS_SIZE 128 /* the ChibiOS default that halconf.h of the keyboard leaves in place */
+/* The value of QMK's common halconf.h, which halconf.h of the keyboard leaves in place. */
+#define SERIAL_BUFFERS_SIZE 128
 
 #define AP2_HAS_BATTERY_ADC
 #define AP2_HAS_BT_SWITCH

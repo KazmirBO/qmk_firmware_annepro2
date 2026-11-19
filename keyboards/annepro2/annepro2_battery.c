@@ -25,7 +25,9 @@
 #    include "annepro2_ble.h"
 
 /* ADC registers (base 0x40010000), offsets as used by the stock firmware. */
-#    define AP2_ADC_REG(off) (*(volatile uint32_t *)(0x40010000u + (off)))
+#    ifndef AP2_ADC_REG
+#        define AP2_ADC_REG(off) (*(volatile uint32_t *)(0x40010000u + (off)))
+#    endif
 #    define AP2_ADC_CR AP2_ADC_REG(0x000)   /* control */
 #    define AP2_ADC_LST0 AP2_ADC_REG(0x004) /* conversion list, 5 bits per entry */
 #    define AP2_ADC_DR0 AP2_ADC_REG(0x030)  /* result of the first list entry, 12 bits */

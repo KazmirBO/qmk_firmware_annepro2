@@ -10,7 +10,6 @@
  */
 #include "all_sources.h"
 #include "ble_frames.h"
-#include "proto_decode.h"
 
 static void setup(void) {
     reset_firmware();

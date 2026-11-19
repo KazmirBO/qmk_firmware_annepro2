@@ -112,5 +112,19 @@ int main(void) {
             CHECK(!led_mcu_on); /* still dark until the host wakes */
         }
     }
+
+    /* readme.md "The LED keys (KC_AP_LED_*, KC_AP_RGB_TOG) clear the mask so that their effect shows": switching the
+     * LEDs on with a layer held sends the mask command and calls layer_state_set_kb(), so the layer colour returns. */
+    CASE("TOG that switches the LEDs on clears the mask and gives a held layer its colour back");
+    reset_firmware();
+    fake_rgb_enabled = false;
+    led_sync(true);
+    fake_sd_tx_clear(&SD0);
+    memset(&fake_calls, 0, sizeof(fake_calls));
+    layer_state = 1u << 1;
+    press(KC_AP_LED_TOG);
+    CHECK_EQ(count_cmd(CMD_LED_MASK_SET_MONO), 1);
+    CHECK_EQ(fake_calls.layer_state_set_kb, 1);
+    layer_state = 0;
     return TEST_RESULT();
 }

@@ -504,6 +504,7 @@ static void case_set_color_all(void) {
 
     CASE("set_color_all replaces rows that were waiting");
     setup();
+    fake_sd_allow_overflow(&SD0); /* a full queue on purpose: set_color_all() writes its colour command anyway */
     fake_sd_set_free(&SD0, 0);
     for (int r = 0; r < NUM_ROW; r++) rgb_matrix_driver.set_color(led_in_row(r), 4, 4, 4);
     rgb_matrix_driver.flush();

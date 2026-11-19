@@ -43,6 +43,16 @@ __attribute__((constructor)) static void map_adc(void) {
     }
 }
 
+__attribute__((constructor)) static void map_ram_magic(void) {
+    /* bootloader_jump() writes the magic value at 0x20001ffc of the keyboard's RAM */
+    void *p = mmap((void *)(uintptr_t)0x20001000u, 4096, PROT_READ | PROT_WRITE,
+                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+    if (p != (void *)(uintptr_t)0x20001000u) {
+        fprintf(stderr, "fake_hw: cannot map the RAM magic page\n");
+        exit(2);
+    }
+}
+
 /* ---- serial ports ----------------------------------------------------------------------------------------------- */
 
 void sdStart(SerialDriver *sd, const SerialConfig *cfg) {
@@ -51,7 +61,13 @@ void sdStart(SerialDriver *sd, const SerialConfig *cfg) {
 }
 
 size_t sdWrite(SerialDriver *sd, const uint8_t *buf, size_t n) {
-    if (n > oqGetEmptyI(&sd->oqueue)) sd->overflows++; /* the real driver would wait here until the UART made room */
+    if (n > oqGetEmptyI(&sd->oqueue)) {
+        sd->overflows++; /* the real driver would wait here until the UART made room */
+        if (!sd->overflow_ok && fake_overflow_failures++ == 0) {
+            fprintf(stderr, "fake_hw: a write of %zu bytes to %s did not fit (%u free): sdWrite() would block\n", n,
+                    sd == &SD0 ? "SD0" : "SD1", (unsigned)oqGetEmptyI(&sd->oqueue));
+        }
+    }
     if (sd->tx_len + n > FAKE_SD_TX_MAX) {
         fprintf(stderr, "fake_hw: serial output log full\n");
         exit(2);
@@ -112,6 +128,11 @@ void fake_sd_set_free(SerialDriver *sd, int32_t free_bytes) {
     sd->oqueue.free_override = free_bytes;
 }
 
+uint32_t fake_overflow_failures;
+void     fake_sd_allow_overflow(SerialDriver *sd) {
+    sd->overflow_ok = true;
+}
+
 void fake_sd_drain(SerialDriver *sd, uint32_t n) {
     sd->oqueue.used = n >= sd->oqueue.used ? 0 : sd->oqueue.used - n;
 }
@@ -124,7 +145,8 @@ void palSetPadMode(fake_port_t *port, unsigned pad, unsigned mode) {
     (void)mode;
 }
 void gpio_set_pin_input_low(int pin) {
-    (void)pin;
+    fake_calls.pin_input_low++;
+    fake_calls.pin_input_low_pin = pin;
 }
 bool gpio_read_pin(int pin) {
     (void)pin;
@@ -183,6 +205,7 @@ void wait_ms(uint32_t ms) {
 }
 void clear_keyboard(void) {
     fake_calls.clear_keyboard++;
+    fake_calls.clear_keyboard_sd1_at = SD1.tx_len; /* where in the BLE output the empty report would go */
 }
 uint8_t get_mods(void) {
     return fake_mods;
@@ -190,8 +213,12 @@ uint8_t get_mods(void) {
 void set_mods(uint8_t mods) {
     fake_mods = mods;
 }
-__attribute__((weak)) void keyboard_pre_init_user(void) {}
-__attribute__((weak)) void keyboard_post_init_user(void) {}
+__attribute__((weak)) void keyboard_pre_init_user(void) {
+    fake_calls.pre_init_user++;
+}
+__attribute__((weak)) void keyboard_post_init_user(void) {
+    fake_calls.post_init_user++;
+}
 __attribute__((weak)) void matrix_scan_user(void) {
     fake_calls.matrix_scan_user++;
 }
@@ -211,14 +238,21 @@ __attribute__((weak)) bool process_record_user(uint16_t keycode, keyrecord_t *re
     fake_calls.process_record_user++;
     return true;
 }
-layer_state_t layer_state_set_kb(layer_state_t state) {
-    fake_calls.layer_state_set_kb++;
+/* As in QMK: the _kb hooks call the keymap's _user hooks (which a keymap test defines; the defaults do nothing). */
+__attribute__((weak)) layer_state_t layer_state_set_user(layer_state_t state) {
     return state;
 }
-bool led_update_kb(led_t led_state) {
+__attribute__((weak)) bool led_update_user(led_t led_state) {
     (void)led_state;
-    fake_calls.led_update_kb++;
     return true;
+}
+layer_state_t layer_state_set_kb(layer_state_t state) {
+    fake_calls.layer_state_set_kb++;
+    return layer_state_set_user(state);
+}
+bool led_update_kb(led_t led_state) {
+    fake_calls.led_update_kb++;
+    return led_update_user(led_state);
 }
 
 bool rgb_matrix_is_enabled(void) {
@@ -241,16 +275,46 @@ void rgb_matrix_disable_noeeprom(void) {
 void eeconfig_force_flush_rgb_matrix(void) {
     fake_calls.eeconfig_flush++;
 }
-void rgb_matrix_increase_hue(void) { fake_calls.rgb_other++; }
-void rgb_matrix_decrease_hue(void) { fake_calls.rgb_other++; }
-void rgb_matrix_increase_sat(void) { fake_calls.rgb_other++; }
-void rgb_matrix_decrease_sat(void) { fake_calls.rgb_other++; }
-void rgb_matrix_increase_val(void) { fake_calls.rgb_other++; }
-void rgb_matrix_decrease_val(void) { fake_calls.rgb_other++; }
-void rgb_matrix_increase_speed(void) { fake_calls.rgb_other++; }
-void rgb_matrix_decrease_speed(void) { fake_calls.rgb_other++; }
-void rgb_matrix_step(void) { fake_calls.rgb_other++; }
-void rgb_matrix_step_reverse(void) { fake_calls.rgb_other++; }
+void rgb_matrix_increase_hue(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_decrease_hue(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_increase_sat(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_decrease_sat(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_increase_val(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_decrease_val(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_increase_speed(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_decrease_speed(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_step(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
+void rgb_matrix_step_reverse(void) {
+    fake_calls.rgb_other++;
+    fake_calls.rgb_last = __func__;
+}
 
 matrix_row_t fake_matrix_row(uint8_t row) {
     return fake_matrix[row];
