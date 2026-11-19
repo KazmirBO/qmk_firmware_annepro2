@@ -58,7 +58,7 @@ Kolumna „MCU 2.36” mówi, czy fabryczny odbiorca obsługuje polecenie (`02-p
 | `downloadMacro` | MCU | `30 05` | tak |
 | `readMacroConfig`, `readMacroActiveList`, `readMacroMap`, `readMacro` | MCU | `30 06`-`30 09` | tak |
 | `clearMacro` | MCU | `30 0a` | tak |
-| `deleteBleHost` | BLE | `40 05` | tak; przycisk „Clear” i przywracanie ustawień, usuwa bondy wszystkich slotów |
+| `deleteBleHost` | BLE | `40 05` | tak; przycisk „Clear” i przywracanie ustawień, usuwa bondy wszystkich slotów (przy połączonym hoście dopiero po zakończeniu łącza, `05-ble.md` §8) |
 | `readBleMac` | BLE | `40 30` | tak (6 B); ObinsKit 1.2.11 go nie wywołuje |
 | `writeVirtualMouseCursorSpeed`, `...WheelSpeed`, `...AcpanSpeed`, `readVirtualMouseConfig` | MCU | `60 01`, `60 02`, `60 03`, `60 05` | nie (brak grupy `0x60` w MCU 2.36) |
 | `writeOledImg`, `writeOledScroll`, `writeOledDateTime`, `writeOledChar`, `writeOledMonitor` | MCU innego modelu (z wyświetlaczem) | `70 01`, `70 05`, `70 07`, `70 08`, `70 09` | nie dotyczy |
@@ -81,7 +81,7 @@ ObinsKit nie ma stałego adresu bazowego: bierze go za każdym razem z bootloade
 ## 5. Nazwy w interfejsie
 
 - Procesory: „Application Processor”, „Light Processor”, „Bluetooth Processor” (`en.yml`); wersje pochodzą z `readFirmwareVersion` (`01-architektura.md` §1) [O].
-- Kody klawiszy (enum `KC`): `KC_BLE_WL_1`-`4` = 200-203, `KC_BLE_WL_ON` = 204 (w lokalizacji błędnie nazwany jak slot 4), `KC_FN_WHEEL` = 207 („Game wheel”), `KC_BL_BATT` = 246 („Battery level”); nazwy klawiszy HID kończą się na 0xA1 (`KC_EXSEL`). Pełna tabela z działaniem w MCU: `03-mcu.md` §6 [O].
+- Kody klawiszy (enum `KC`): `KC_BLE_WL_1`-`4` = 200-203, `KC_BLE_WL_ON` = 204 (w lokalizacji błędnie nazwany tak samo jak slot 4), `KC_FN_WHEEL` = 207 („Game wheel”), `KC_BL_BATT` = 246 („Battery level”); nazwy klawiszy HID kończą się na 0xA1 (`KC_EXSEL`). Pełna tabela z działaniem w MCU: `03-mcu.md` §6 [O].
 - Efekty: mapa numerów na nazwy i podział na grupy Auto i Trigger; numerów 20, 22, 26 i 27 ObinsKit nie zna (`04-led.md` §4) [O].
 
 ## 6. Bootloader

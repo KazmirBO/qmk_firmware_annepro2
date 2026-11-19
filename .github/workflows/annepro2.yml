@@ -1,0 +1,231 @@
+name: Anne Pro 2 CI
+
+# Checks of keyboards/annepro2 for this fork: the host-side tests, qmk lint, a pin check of the two boards, and the
+# seven images the repository builds (c18: kazmir_bo, default, default_full_caps, default_layer_indicators,
+# iso_default; c15: kazmir_bo, default) with QMK's own -Werror and a failure on any other warning in the build log.
+#
+# It runs on every push to master and on every pull request, without path filters: a filter that misses a core
+# directory the keyboard builds from would skip a needed run, and a required check that a filter skips leaves a pull
+# request waiting forever. A run takes about five minutes.
+#
+# The host-side tests run on the runner itself (ubuntu-24.04: gcc 13, the compiler the suite is kept warning-free
+# with; AP2_TEST_WERROR=1 makes a warning a failure). The firmware is built in the qmk_cli container image, pinned
+# by digest below: arm-none-eabi-gcc 15.2.0 (crosstool-NG build of qmk/qmk_toolchains, newlib-nano). That is NOT the
+# toolchain of the keyboard owner, which uses about 400 bytes more static RAM on the C15: a green C15 job means "links
+# on this toolchain and uses no more static RAM than recorded", not "links on the owner's toolchain".
+#
+# The image is ghcr.io/qmk/qmk_cli "latest" (also tagged 1.2.0) as of 2026-11-19, built 2026-03-28, written out as
+# the same digest in the two `container:` lines (the container key cannot read env or vars). To move to a newer
+# toolchain: pick the new digest, replace it in both places, run the two C15 builds in it, put the printed
+# __bss_end__ values and static object sizes into the four C15_* values, and change EXPECTED_GCC. Do not flash
+# images built here; the workflow does not upload them.
+
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same pull request supersedes a run that is still going. Every other run (a push to master, a
+# run by hand) has a group of its own, so none is cancelled or left waiting.
+concurrency:
+  group: annepro2-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  EXPECTED_GCC: 15.2.0
+
+jobs:
+  tests:
+    name: Host tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+    - name: Check out
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Host compiler
+      run: gcc --version | head -n 1
+
+    - name: Host-side tests (real sources against fake hardware)
+      env:
+        AP2_TEST_WERROR: '1'
+        AP2_TEST_TIMEOUT: '120'
+      run: bash keyboards/annepro2/tests/run.sh
+
+    - name: Keep the logs of a failed run
+      if: failure()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: annepro2-test-logs
+        path: keyboards/annepro2/tests/build/*.log
+        if-no-files-found: ignore
+
+  c18:
+    name: C18 images and qmk lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: ghcr.io/qmk/qmk_cli@sha256:b7d7fa8fb4432b569931de5ad59098cb788f440ed61a62c5126746b71aee0f4a
+
+    steps:
+    - name: Allow git to read the checkout
+      run: git config --global --add safe.directory '*'
+
+    - name: Check out
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # The ARM build reads only these four submodules. SKIP_GIT=yes below stops make from fetching the other four
+    # (googletest, lvgl, pico-sdk, vusb) and from printing a "submodules are out of date" warning.
+    - name: Fetch the submodules the build uses
+      run: git submodule update --init --depth 1 -- lib/chibios lib/chibios-contrib lib/lufa lib/printf
+
+    - name: Install the Python requirements of the QMK CLI
+      run: pip3 install -r requirements.txt
+
+    - name: Toolchain
+      run: |
+        arm-none-eabi-gcc --version | head -n 1
+        arm-none-eabi-gcc -dumpversion | grep -qx "$EXPECTED_GCC" \
+          || { echo "::error::arm-none-eabi-gcc is not $EXPECTED_GCC; see the header of this workflow"; exit 1; }
+
+    - name: qmk lint --strict (every revision and keymap)
+      run: |
+        status=0
+        for target in c18:kazmir_bo c18:default c18:default_full_caps c18:default_layer_indicators c18:iso_default \
+                      c15:kazmir_bo c15:default; do
+          echo "::group::qmk lint annepro2/${target%%:*} ${target##*:}"
+          qmk lint --strict -kb "annepro2/${target%%:*}" -km "${target##*:}" || status=1
+          echo "::endgroup::"
+        done
+        exit $status
+
+    - name: board.c pin lists match keyboard.json
+      run: |
+        python3 - <<'PY'
+        import json
+        import re
+        import sys
+
+        kbd = "keyboards/annepro2"
+        bad = 0
+        for rev, board in (("c15", "ANNEPRO2_C15"), ("c18", "ANNEPRO2_C18")):
+            with open(f"{kbd}/{rev}/keyboard.json") as f:
+                pins = json.load(f)["matrix_pins"]
+            with open(f"{kbd}/boards/{board}/board.c") as f:
+                src = f.read()
+
+            def macro(name):
+                return re.search(rf"^#define {name}\(.*$", src, re.M).group(0)
+
+            out = set(re.findall(r"PBIT\(PORT, (\w+)\)", macro("OUT_BITS")))
+            inp = set(re.findall(r"PBIT\(PORT, (\w+)\)", macro("IN_BITS")))
+            gpio = set(re.findall(r"PAFIO\(PORT, N, (\w+), AFIO_GPIO\)", macro("AF_BITS")))
+            for what, got, want in (("rows (OUT_BITS)", out, set(pins["rows"])),
+                                    ("cols (IN_BITS)", inp, set(pins["cols"])),
+                                    ("GPIO alternate functions (AF_BITS)", gpio, set(pins["rows"]) | set(pins["cols"]))):
+                if got != want:
+                    bad = 1
+                    print(f"{rev}: {what} differs from {rev}/keyboard.json: only in board.c {sorted(got - want)}, "
+                          f"only in json {sorted(want - got)}")
+                else:
+                    print(f"{rev}: {what} ok ({len(got)} pins)")
+        sys.exit(bad)
+        PY
+
+    - name: Build the five C18 keymaps (QMK adds -Werror)
+      run: |
+        make -j"$(nproc)" SKIP_GIT=yes annepro2/c18:kazmir_bo annepro2/c18:default annepro2/c18:default_full_caps \
+          annepro2/c18:default_layer_indicators annepro2/c18:iso_default 2>&1 | tee build.log
+
+    - name: No warnings of any kind in the build log
+      run: |
+        if grep -n -i 'warning' build.log; then
+          echo "::error::the build printed warnings"
+          exit 1
+        fi
+        ls -l annepro2_c18_*.bin
+
+  c15:
+    name: C15 images (link check and static RAM)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container: ghcr.io/qmk/qmk_cli@sha256:b7d7fa8fb4432b569931de5ad59098cb788f440ed61a62c5126746b71aee0f4a
+    env:
+      # End of .bss (__bss_end__) of the two C15 images with the toolchain above; the C15 RAM ends at 0x20001ffc.
+      C15_DEFAULT_BSS_END: '0x20001e2c'
+      C15_KAZMIR_BO_BSS_END: '0x20001db4'
+      # Sum of the sizes of all .data and .bss objects (arm-none-eabi-nm -S) with the same toolchain.
+      C15_DEFAULT_STATIC_BYTES: '4592'
+      C15_KAZMIR_BO_STATIC_BYTES: '4474'
+
+    steps:
+    - name: Allow git to read the checkout
+      run: git config --global --add safe.directory '*'
+
+    - name: Check out
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Fetch the submodules the build uses
+      run: git submodule update --init --depth 1 -- lib/chibios lib/chibios-contrib lib/lufa lib/printf
+
+    - name: Install the Python requirements of the QMK CLI
+      run: pip3 install -r requirements.txt
+
+    - name: Toolchain
+      run: |
+        arm-none-eabi-gcc --version | head -n 1
+        arm-none-eabi-gcc -dumpversion | grep -qx "$EXPECTED_GCC" \
+          || { echo "::error::arm-none-eabi-gcc is not $EXPECTED_GCC; see the header of this workflow"; exit 1; }
+
+    - name: Build the two C15 keymaps (QMK adds -Werror)
+      run: |
+        make -j"$(nproc)" SKIP_GIT=yes annepro2/c15:kazmir_bo annepro2/c15:default 2>&1 | tee build.log
+
+    - name: No warnings of any kind in the build log
+      run: |
+        if grep -n -i 'warning' build.log; then
+          echo "::error::the build printed warnings"
+          exit 1
+        fi
+        ls -l annepro2_c15_*.bin
+
+    # A guard, not a law: the C15 has almost no RAM left on the owner's toolchain, so growth has to be a decision.
+    # An intended increase edits the four values above in the same pull request, after the C15 was checked on that
+    # toolchain.
+    - name: C15 static RAM must not grow
+      run: |
+        status=0
+        for t in default:C15_DEFAULT kazmir_bo:C15_KAZMIR_BO; do
+          keymap=${t%%:*}
+          end_name=${t##*:}_BSS_END
+          bytes_name=${t##*:}_STATIC_BYTES
+          limit=${!end_name}
+          bytes_limit=${!bytes_name}
+          elf=".build/annepro2_c15_${keymap}.elf"
+          end=0x$(arm-none-eabi-nm "$elf" | awk '$3 == "__bss_end__" { print $1 }')
+          bytes=0
+          while read -r size; do bytes=$((bytes + 16#$size)); done \
+            < <(arm-none-eabi-nm -S "$elf" | awk 'NF == 4 && $3 ~ /^[bBdD]$/ { print $2 }')
+          printf 'c15 %-10s __bss_end__ %s (limit %s, %d bytes left), static objects %d bytes (limit %d)\n' \
+            "$keymap" "$end" "$limit" $((0x20001ffc - end)) "$bytes" "$bytes_limit"
+          if (( end > limit || bytes > bytes_limit )); then
+            echo "::error::c15 $keymap uses more static RAM than recorded (__bss_end__ $((end - limit)), objects $((bytes - bytes_limit)) bytes over)"
+            status=1
+          fi
+        done
+        exit $status

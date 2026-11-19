@@ -20,11 +20,11 @@ If you want to compile the Anne Pro 2 C15 default keymap use:
 
     bash keyboards/annepro2/tests/run.sh
 
-builds the keyboard's source files for the host against fake hardware and runs the checks in `tests/` (it needs only gcc; see `tests/README.md`). They cover the logic only: the two other MCUs and the hardware are faked, so a test on the keyboard is still needed.
+builds the keyboard's source files for the host against fake hardware and runs the checks in `tests/` (it needs Linux on x86-64 with bash, gcc and python3; see `tests/README.md`). They cover the logic only: the two other MCUs and the hardware are faked, so a test on the keyboard is still needed. The same script runs in CI (`.github/workflows/annepro2.yml`, on every push to `master`, every pull request and by hand, with `AP2_TEST_WERROR=1`).
 
 ## Bluetooth and battery options
 
-Define these in the `config.h` of your keymap.
+Define these in the `config.h` of your keymap (`keymaps/kazmir_bo/config.h` is an example). To try one without a keymap of your own, pass it on the command line, for example `make annepro2/c18:default EXTRAFLAGS=-DAP2_BT_SWITCH`.
 
 | Option | Effect |
 |---|---|
@@ -32,12 +32,12 @@ Define these in the `config.h` of your keymap.
 | `AP2_BT_SWITCH` | Follows the Bluetooth switch on the bottom of the keyboard, as the stock firmware does: `AP2_BT_SWITCH_PIN` (default `C10`, read with a pull-down) high selects USB, low selects Bluetooth. Unlike the stock firmware, which applies the level at every reading, only a change of the switch, stable for `AP2_BT_SWITCH_DEBOUNCE_MS` (50), selects the output, so `KC_AP2_USB` and the Bluetooth keys still work in between. Checked on a C18: off selects USB, on selects Bluetooth. On a board without the switch the pin reads low and the keyboard would type over Bluetooth, so leave the option off unless your keyboard has the switch. |
 | `AP2_BLE_CONNECT_TIMEOUT_MS`, `AP2_BLE_PAIR_TIMEOUT_MS` | The Bluetooth MCU reports neither the end of its advertising nor a disconnect. When a short press of a slot key moved the keystrokes from a USB host to Bluetooth and no host has connected after `AP2_BLE_CONNECT_TIMEOUT_MS` (default 6000, 0 turns it off), they go back to the USB host; another press before a host has connected starts that time again, and holding a slot key meanwhile gives them back to the USB host at once. Turning the Bluetooth switch on meanwhile cancels the way back: the keystrokes stay on Bluetooth. The pairing state started by holding a slot key expires after `AP2_BLE_PAIR_TIMEOUT_MS` (default 60000), so that a later connection does not move the keystrokes by itself. Both are at most 65535. |
 | `AP2_BLE_UNPAIR_HOLD_MS` | How long `KC_AP2_BT_UNPAIR` has to be held before it deletes the bonds (default 3000, at most 65535); 0 acts on the press. |
-| `AP2_BLE_HANDSHAKE_TRIES`, `AP2_BLE_HANDSHAKE_SLOW_MS` | How many quick wake-up and version requests, the wake-up frame sent at start included, are sent while the Bluetooth MCU has not reported its version (default 24); after them the request is repeated every `AP2_BLE_HANDSHAKE_SLOW_MS` (default 5000) until it answers, so a Bluetooth MCU that starts late is still reached; one that restarts later reports its version by itself, and gets the serial number and the battery level again. `annepro2_ble_is_ready()` and `annepro2_ble_version()` expose the result. A frame from the Bluetooth MCU that stops arriving is dropped after `AP2_BLE_RX_TIMEOUT_MS` (default 100); a frame that lost a byte is recognised by the sync byte of the next one, and frames the Bluetooth MCU only forwards are skipped. |
+| `AP2_BLE_HANDSHAKE_TRIES`, `AP2_BLE_HANDSHAKE_SLOW_MS` | How many quick wake-up and version requests, the wake-up frame sent at start included, are sent while the Bluetooth MCU has not reported its version (default 24, at most 255); after them the request is repeated every `AP2_BLE_HANDSHAKE_SLOW_MS` (default 5000, at most 65535) until it answers, so a Bluetooth MCU that starts late is still reached; one that restarts later reports its version by itself, and gets the serial number and the battery level again. `annepro2_ble_is_ready()` and `annepro2_ble_version()` expose the result. A frame from the Bluetooth MCU that stops arriving is dropped after `AP2_BLE_RX_TIMEOUT_MS` (default 100); a frame that lost a byte is recognised by the sync byte of the next one, and frames the Bluetooth MCU only forwards are skipped. |
 | `AP2_BLE_BATTERY` | C18 only. Reads the battery on PA7 and sends it to the Bluetooth MCU, so that the host can show the battery level; enables the `KC_AP2_BATT` key. Tuning: `AP2_BATTERY_INTERVAL_MS` (60000), `AP2_BATTERY_SHOW_MS` (3000), `AP2_BATTERY_SCALE_NUM` (at most 1048832) and `AP2_BATTERY_SCALE_DEN` (calibration, default 1:1). `AP2_BATTERY_EMPTY_MV` (3200) is the voltage below which 0 % is shown; readings between it and 3.6 V are stretched, the curve above 3.6 V is unchanged, and 3400 or more turns the correction off. The Bluetooth MCU only lowers the level it reports until it restarts, so the highest of the last `AP2_BATTERY_HISTORY` readings (default 5, at most 255) is sent, which keeps a short voltage drop off the host. After start the readings are taken every `AP2_BATTERY_FILL_MS` (2000) and the first level is sent once the history is full; a new connection, and every version report of the Bluetooth MCU (it has restarted, its level starts at 100 % again), get the current level again. |
 | `AP2_BLE_SERIAL` | C18 only. Sends the UDID of the stock device record (flash `0x3E00`) to the Bluetooth MCU as its DIS Serial Number, as 32 upper-case hex digits, after every version report of the Bluetooth MCU. Without it the host sees the default serial `0123456789ABCDEF0123456789ABCDEF`; the stock firmware tries the same, but the Bluetooth MCU rejects its frame. Nothing is sent if the record is blank. |
 | `AP2_AWAKE_SCAN_MS`, `AP2_IDLE_SCAN_MS`, `AP2_IDLE_AFTER_MS` | The wait after each matrix scan when no USB host is on, or a sleeping one while the keystrokes go to Bluetooth (see the paragraph on scanning below): `AP2_AWAKE_SCAN_MS` (default 1, 0 scans at full speed) while a key was pressed or released within the last `AP2_IDLE_AFTER_MS` (default 10000), a key is held or the LEDs are lit, `AP2_IDLE_SCAN_MS` (default 10) otherwise; `AP2_IDLE_SCAN_MS` 0 turns both waits off. |
 
-`KC_AP2_BATT` shows the battery level on the number row for a few seconds (one key per 10 %, green from 50 %, yellow from 20 %, red below); pressing it again hides the indicator. It shows the level sent to the host, on the curve of the Bluetooth MCU (100 % from 4.15 V, linear between the steps); before the first level is sent (some 8 s after the Bluetooth MCU is ready) it shows the highest reading so far. The keys are written one at a time as the LED UART has room. It does nothing unless `AP2_BLE_BATTERY` is defined.
+`KC_AP2_BATT` shows the battery level on the number row for a few seconds (one key per 10 %, green from 50 %, yellow from 20 %, red below); pressing it again hides the indicator. It shows the level sent to the host, on the curve of the Bluetooth MCU (100 % from 4.15 V, linear between the steps); before the first level is sent (about 10 s after start, or 8 s after the Bluetooth MCU answers if it answers later than 2 s after start) it shows the highest reading so far. The keys are written one at a time as the LED UART has room. It does nothing unless `AP2_BLE_BATTERY` is defined.
 
 `KC_AP2_BT_UNPAIR` deletes the bonds of all four slots, not only of the current one, after being held for `AP2_BLE_UNPAIR_HOLD_MS`; the key blinks red when it has acted. It also ends the link to a connected host: the Bluetooth MCU deletes the bonds only once that link is gone. Pairing a slot again replaces only the bond of that slot.
 
@@ -74,7 +74,7 @@ including the C/C++ module to prevent errors while compiling
    ```bash
    cargo build --release
    ```
-   The compiled tool should be in `./target/release/annepro2_tools` (In later I will refer to this as `annepro2_tools`)
+   The compiled tool should be in `./target/release/annepro2_tools` (below it is called `annepro2_tools`)
 
 ### Flashing the firmware
 
@@ -86,6 +86,8 @@ including the C/C++ module to prevent errors while compiling
    ```
 
 If the tool can't find the keyboard please double check you have the keyboard in IAP mode.
+
+The lighting also needs the open Shine firmware on the LED MCU (see the paragraph on `RGB_MATRIX_ENABLE` above); this build does not produce it. Build it from OpenAnnePro/AnnePro2-Shine and flash it with `annepro2_tools` to the LED target; the option that selects the target is described in the AnnePro2-Tools documentation.
 
 
 See the [build environment setup](https://docs.qmk.fm/#/getting_started_build_tools) and the [make instructions](https://docs.qmk.fm/#/getting_started_make_guide) for more information. Brand new to QMK? Start with our [Complete Newbs Guide](https://docs.qmk.fm/#/newbs).

@@ -3,6 +3,8 @@
 #   tests/run.sh            all test programs (tests/test_*.c)
 #   tests/run.sh ble parser only the programs whose name contains one of the words
 # Needs gcc, python3 and bash; no network. Output goes to tests/build/ (ignored by git).
+# Environment: CC (default gcc); AP2_TEST_TIMEOUT seconds per test program (default 120, needs timeout(1));
+# AP2_TEST_WERROR=1 makes a compiler warning a failure (CI sets it).
 set -e
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 kbd=$(cd "$here/.." && pwd)
@@ -11,13 +13,22 @@ build=$here/build
 mkdir -p "$build"
 
 CC=${CC:-gcc}
-CFLAGS="-std=gnu11 -Wall -Wextra -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=undefined"
-CFLAGS="$CFLAGS -fno-omit-frame-pointer"
+read -r -a cc <<< "$CC" # CC may be a command with arguments, e.g. "ccache gcc"
+for tool in "${cc[0]}" python3; do
+    command -v "$tool" > /dev/null || { echo "run.sh: $tool not found" >&2; exit 2; }
+done
+# QMK builds with -Wall only, so its unused parameters (hook signatures) are not reported here either.
+CFLAGS=(-std=gnu11 -Wall -Wextra -Wno-unused-parameter -g -O1 "-fsanitize=address,undefined"
+        -fno-sanitize-recover=undefined -fno-omit-frame-pointer)
+[ -z "${AP2_TEST_WERROR:-}" ] || CFLAGS+=(-Werror)
 # The fakes come first; the real QMK headers that are small and self-contained are used as they are (as system headers,
 # so that QMK's own warnings do not show).
-INCS="-I$here/fakes -I$build -I$kbd -isystem $root/tmk_core/protocol -isystem $root/quantum"
-INCS="$INCS -isystem $root/quantum/rgb_matrix -isystem $root/platforms"
+INCS=("-I$here/fakes" "-I$build" "-I$kbd" -isystem "$root/tmk_core/protocol" -isystem "$root/quantum"
+      -isystem "$root/quantum/rgb_matrix" -isystem "$root/platforms")
+limit=()
+if command -v timeout > /dev/null; then limit=(timeout -k 5 "${AP2_TEST_TIMEOUT:-120}"); fi
 python3 "$here/gen_led_layout.py" "$kbd/info.json" "$build/led_layout.h"
+python3 "$here/check_drift.py" || exit 1
 
 pass=0
 fail=0
@@ -33,18 +44,19 @@ for src in "$here"/test_*.c; do
         [ $match = yes ] || continue
     fi
     log=$build/$name.log
-    if ! $CC $CFLAGS $INCS -include "$here/fakes/test_config.h" -o "$build/$name" "$src" \
+    if ! "${cc[@]}" "${CFLAGS[@]}" "${INCS[@]}" -include "$here/fakes/test_config.h" -o "$build/$name" "$src" \
             "$here/fakes/fake_hw.c" > "$log" 2>&1; then
-        printf 'FAIL %-28s does not build, see %s\n' "$name" "${log#$root/}"
+        printf 'FAIL %-28s does not build, see %s\n' "$name" "${log#"$root"/}"
         grep -A6 'error' "$log" | sed "s#$root/##g" | head -n 40
         fail=$((fail + 1))
         continue
     fi
     warnings=$(grep -c 'warning:' "$log" || true)
     set +e
-    "$build/$name" >> "$log" 2>&1
+    "${limit[@]}" "$build/$name" >> "$log" 2>&1
     status=$?
     set -e
+    [ $status -ne 124 ] || echo "TIMEOUT after ${AP2_TEST_TIMEOUT:-120} s" >> "$log"
     result=$(grep '^RESULT ' "$log" | tail -n 1 || true)
     checks=$(echo "$result" | sed -n 's/.* checks=\([0-9]*\).*/\1/p')
     known=$(echo "$result" | sed -n 's/.* known=\([0-9]*\).*/\1/p')
@@ -58,12 +70,16 @@ for src in "$here"/test_*.c; do
         total_known=$((total_known + known))
         grep -E '^  (KNOWN|FIXED)' "$log" | sed 's/^/       /' || true
     else
-        printf 'FAIL %-28s (exit status %d), log %s\n' "$name" $status "${log#$root/}"
+        printf 'FAIL %-28s (exit status %d), log %s\n' "$name" $status "${log#"$root"/}"
         grep -v '^RESULT' "$log" | sed "s#$root/##g" | tail -n 40
         fail=$((fail + 1))
     fi
 done
 
+if [ $((pass + fail)) -eq 0 ]; then
+    echo "run.sh: no test program matches: $*" >&2
+    exit 2
+fi
 echo "----"
 echo "$pass test program(s) passed, $fail failed, $total_checks checks, $total_known known failure(s)"
 [ $fail -eq 0 ]

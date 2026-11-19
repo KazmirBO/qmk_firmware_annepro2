@@ -39,6 +39,8 @@ static const SerialConfig led_uart_runtime_config = {
     .speed = LED_UART_BAUD_RATE,
 };
 
+/* The wake-up frame that annepro2_ble.c sends to the BLE MCU (ble_mcu_wakeup: FW, IapMode, flag normal), routed from
+ * the main MCU (3) to the LED MCU (4). */
 static const uint8_t led_mcu_wakeup[11] = {0x7b, 0x10, 0x43, 0x10, 0x03, 0x00, 0x00, 0x7d, 0x02, 0x01, 0x02};
 
 /* Handshake state with the BLE MCU. The stock firmware pings the BLE MCU (02 01 02 and 01 03 02) five times every
@@ -50,6 +52,7 @@ static const uint8_t led_mcu_wakeup[11] = {0x7b, 0x10, 0x43, 0x10, 0x03, 0x00, 0
 #ifndef AP2_BLE_HANDSHAKE_SLOW_MS
 #    define AP2_BLE_HANDSHAKE_SLOW_MS 5000 /* the stock interval, once the quick tries are used up */
 #endif
+_Static_assert(AP2_BLE_HANDSHAKE_TRIES <= UINT8_MAX && AP2_BLE_HANDSHAKE_SLOW_MS < 0x10000, "the handshake count is 8-bit, the interval 16-bit");
 static bool     ble_ready;
 static uint16_t ble_version;
 static uint8_t  ble_ping_count;
@@ -80,6 +83,10 @@ static void forward_reactive_keypress(const keyrecord_t *record) {
 #    define AP2_BLE_RX_TIMEOUT_MS 100
 #endif
 
+/* ble_rx_byte() relies on a rejected frame leaving at most 7 bytes. Of the header of a held frame only the seq byte
+ * and byte 6 (not checked) can be a sync byte. The byte after byte 6 is 0x7d, which is no frame type; the byte after
+ * the seq byte, the length, would have to be one, and a held length is at most BLE_RX_BODY_MAX. */
+_Static_assert(BLE_RX_BODY_MAX < BLE_TYPE_FRAGMENT && BLE_RX_BODY_MAX < BLE_TYPE_SINGLE, "a length held in ble_rx must not look like a frame type");
 static uint8_t  ble_rx[BLE_RX_HEADER_SIZE + BLE_RX_BODY_MAX];
 static uint8_t  ble_rx_pos;
 static uint8_t  ble_rx_skip; /* bytes of a long frame still to drop */
@@ -217,7 +224,9 @@ static void led_mcu_power(bool on) {
  * the USB host, not past RGB_MATRIX_TIMEOUT). Every change (the keys below, QK_RGB_MATRIX_*, the state restored from
  * EEPROM, user code, a key after the timeout) is followed here, so the two cannot drift apart. With a sticky key set
  * (a Caps Lock indicator, the battery indicator) the LED MCU keeps its matrix and LED power on after CMD_LED_OFF to
- * show that key, as the stock firmware does. */
+ * show that key, as the stock firmware does. led_power_timer and led_check_timer are 16-bit and mean something only
+ * while led_mcu_on: led_sync() restarts both whenever it switches the LED MCU on, and their readers,
+ * led_status_received() and led_check_task(), return first while it is off. */
 static bool     led_mcu_on;
 static uint16_t led_power_timer; /* the last power command; the LED timers are 16 bits, RAM is short on the C15 */
 static uint16_t led_check_timer;
@@ -256,6 +265,8 @@ static void led_sync(bool force) {
 #    endif
 #    define AP2_LED_STATUS_SETTLE_MS 100
 #    define AP2_LED_MAX_REPAIRS 3
+/* The 16-bit check timer is read once per scan, so the interval leaves room for the longest scan below 65536 ms. */
+_Static_assert(AP2_LED_CHECK_MS <= 60000, "AP2_LED_CHECK_MS must be at most 60000 (16-bit timer)");
 
 static uint8_t led_repairs;
 static bool    led_setup_checked;
@@ -272,8 +283,8 @@ static void led_check_task(void) {
     if (ap2_led_tx_space() < PROTO_TX_MESSAGE_SIZE(1) + AP2_LED_TX_RESERVE) return; /* next scan */
     led_check_timer = timer_read();
     if (!led_setup_checked) {
-        /* An LED MCU that started after the setup in keyboard_post_init_kb() and got a sticky key first reports its
-         * matrix on, but shows only that key; the first check therefore sets it up once more. */
+        /* An LED MCU that started after the led_sync(true) in keyboard_post_init_kb() and got a sticky key first
+         * reports its matrix on, but shows only that key; the first check therefore sets it up once more. */
         led_setup_checked = true;
         led_setup();
         return;
@@ -323,6 +334,17 @@ static void leds_switch(bool on) {
 #endif
 }
 
+/* Whether the LED keys find the LEDs on. With rgb_matrix it is the state led_sync() last gave the LED MCU, as long as
+ * the LED MCU does not report its matrix off (it restarted and is not set up again: the key then sets it up). The
+ * status alone cannot tell, because a sticky key keeps the matrix on after CMD_LED_OFF and it then reports it on. */
+static bool leds_on(void) {
+#ifdef RGB_MATRIX_ENABLE
+    return led_mcu_on && ap2_led_status.matrix_enabled;
+#else
+    return ap2_led_status.matrix_enabled;
+#endif
+}
+
 /*
  * The keyboard builds with NO_USB_STARTUP_CHECK (c15/c18 rules.mk). Otherwise QMK stops the whole keyboard task while
  * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. Instead:
@@ -346,11 +368,18 @@ static void leds_switch(bool on) {
 #endif
 #define AP2_USB_WAKE_RETRY_MS 500
 
+/* usb_wake_pending and usb_gone are never both true (idle, asked and waiting, given up): only
+ * usb_report_while_asleep() sets usb_wake_pending, and not while usb_gone; only usb_suspend_task() sets usb_gone, and
+ * clears usb_wake_pending with it; both are cleared while the bus is not suspended. Clearing usb_gone anywhere else
+ * would start the timeout again for a host that was given up. usb_keys_down is updated by every keyboard or NKRO report
+ * to the USB driver, also while the host is awake. powered_down is true from suspend_power_down_quantum() in
+ * usb_suspend_task() to the next suspend_wakeup_init_kb() or the undo in usb_suspend_task(). */
 static bool     usb_gone;         /* suspended, and did not resume when asked: no host on the cable */
 static bool     usb_wake_pending; /* asked to wake and not resumed yet: the timeout runs */
 static bool     usb_keys_down;    /* the last keyboard report to USB holds a key or a modifier */
 static uint32_t usb_wake_timer;   /* the first request, the timeout runs from it */
 static uint16_t usb_wake_signal;  /* the last wakeup signal; 16 bits time the retry, RAM is short on the C15 */
+static bool     powered_down;     /* cleared by every suspend_wakeup_init_quantum() */
 
 /* Only a host that had configured the keyboard can be asleep: the USB peripheral may also report a suspend with no
  * host at all (on battery, on a charger). */
@@ -365,6 +394,12 @@ static bool usb_host_asleep(void) {
 
 bool annepro2_usb_host_in_use(void) {
     return USB_DRIVER.state == USB_ACTIVE || usb_host_asleep();
+}
+
+/* The scan runs at QMK's suspend rhythm: the host sleeps and the reports go to it. usb_suspend_task() waits then, and
+ * idle_task() must not wait on top of it. */
+static bool usb_sleep_pace(void) {
+    return usb_host_asleep() && !annepro2_ble_is_active();
 }
 
 static void usb_signal_wakeup(void) {
@@ -428,8 +463,6 @@ static void usb_wrap_driver(void) {
     chibios_driver.send_extra    = usb_proxy_extra;
 }
 
-static bool powered_down; /* cleared by every suspend_wakeup_init_quantum() */
-
 static void usb_suspend_task(void) {
     if (USB_DRIVER.state != USB_SUSPENDED) {
         usb_gone         = false; /* reset, configured or resumed: a host is there again */
@@ -440,7 +473,7 @@ static void usb_suspend_task(void) {
     }
     /* A key held since a request is signalled again, as QMK's loop does while a key is down. */
     if (usb_keys_down && (usb_wake_pending || usb_gone) && usb_bus_asleep() && timer_elapsed(usb_wake_signal) >= AP2_USB_WAKE_RETRY_MS) usb_signal_wakeup();
-    if (!usb_host_asleep() || annepro2_ble_is_active()) {
+    if (!usb_sleep_pace()) {
         /* Switched to Bluetooth, or no host after all: undo the power down here, no USB wakeup will do it. */
         if (powered_down && USB_DRIVER.state != USB_ACTIVE) suspend_wakeup_init_quantum();
         powered_down = false;
@@ -574,7 +607,7 @@ static struct {
     uint32_t timer;
     uint8_t  row, col;
     bool     pending;
-} slots[4];
+} slots[AP2_BLE_SLOTS];
 
 static void slot_feedback(uint8_t row, uint8_t col) {
     ap2_led_blink(row, col, ap2_blue, 8, 50);
@@ -594,7 +627,7 @@ static void slot_event(uint8_t slot, keyrecord_t *record) {
 }
 
 static void slot_tick(void) {
-    for (uint8_t i = 0; i < 4; i++) {
+    for (uint8_t i = 0; i < AP2_BLE_SLOTS; i++) {
         if (slots[i].pending && timer_elapsed32(slots[i].timer) >= AP2_BLE_SLOT_HOLD_MS) {
             slots[i].pending = false; /* held: pair */
             annepro2_ble_pair(i);
@@ -731,8 +764,8 @@ static bool idle_key_down(void) {
 
 static void idle_task(void) {
 #if AP2_IDLE_SCAN_MS > 0
-    /* A USB host that is on, or a sleeping one that gets the reports: usb_suspend_task() has its own rhythm. */
-    if (USB_DRIVER.state == USB_ACTIVE || (annepro2_usb_host_in_use() && !annepro2_ble_is_active())) return;
+    /* An active USB host gets no wait; a sleeping one that gets the reports is paced by usb_suspend_task(). */
+    if (USB_DRIVER.state == USB_ACTIVE || usb_sleep_pace()) return;
     bool awake = last_input_activity_elapsed() < AP2_IDLE_AFTER_MS || idle_key_down();
 #    ifdef RGB_MATRIX_ENABLE
     awake = awake || ap2_rgb_lit(); /* a lit effect keeps its frame rate */
@@ -824,7 +857,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_ON:
-                if (ap2_led_status.matrix_enabled) {
+                if (leds_on()) {
                     ap2_led_next_profile();
                 } else {
                     leds_switch(true);
@@ -833,7 +866,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_TOG:
-                if (ap2_led_status.matrix_enabled) {
+                if (leds_on()) {
                     leds_switch(false);
                 } else {
                     leds_switch(true);

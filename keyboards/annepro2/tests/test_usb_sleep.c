@@ -14,6 +14,12 @@
  * driver count what the wrappers pass on. */
 #include "all_sources.h"
 
+/* The keymap hook that suspend_wakeup_init_kb() ends with (weak and empty in the fakes). */
+static int user_wakeups;
+void       suspend_wakeup_init_user(void) {
+    user_wakeups++;
+}
+
 static void sleep_bus(void) {
     USBD1.state       = USB_SUSPENDED;
     USBD1.saved_state = USB_ACTIVE;
@@ -50,6 +56,7 @@ static void send_release(void) {
 /* One pass of the main loop while the host sleeps: usb_suspend_task() waits 17 ms when it powers down. */
 static void scan(void) {
     usb_suspend_task();
+    CHECK(!(usb_wake_pending && usb_gone)); /* idle, asked and waiting, or given up (annepro2.c) */
 }
 
 static void case_wrapping(void) {
@@ -501,6 +508,24 @@ static void case_bluetooth_state(void) {
     memset(keyboard_report, 0, sizeof(*keyboard_report));
     suspend_wakeup_init_kb();
     CHECK_EQ(keyboard_report->keys[0], 0x09);
+
+    /* annepro2.c housekeeping_task_kb(): the state is saved only in a loop that ends on Bluetooth, and a loop that ends
+     * on USB drops the copy of an earlier one; otherwise a wakeup after a switch back to Bluetooth would press a key
+     * that was released long ago (readme.md: "A USB host that wakes up while the keystrokes go to Bluetooth no longer
+     * drops the keys and modifiers held on Bluetooth", but only the ones held now). */
+    CASE("USB wakeup over Bluetooth: a report saved in an earlier loop is not put back after a switch to Bluetooth");
+    setup();
+    fake_pin_c10 = true;
+    ble_ready    = true;
+    annepro2_ble_use_driver();
+    keyboard_report->keys[0] = 0x04;
+    housekeeping_task_kb(); /* saved on Bluetooth */
+    annepro2_ble_disconnect();
+    housekeeping_task_kb(); /* the next loop is on USB: nothing is saved now, the old copy is stale */
+    annepro2_ble_use_driver();
+    memset(keyboard_report, 0, sizeof(*keyboard_report));
+    suspend_wakeup_init_kb();
+    CHECK_EQ(keyboard_report->keys[0], 0);
 }
 
 static void case_in_use(void) {
@@ -527,6 +552,25 @@ static void case_in_use(void) {
     CHECK(annepro2_usb_host_in_use());
 }
 
+/* annepro2.c usb_proxy_mouse(): any motion, also a horizontal scroll alone, wakes a sleeping host; and
+ * suspend_wakeup_init_kb() ends with the keymap's hook, as QMK's _kb hooks do. */
+static void case_mouse_and_hook(void) {
+    CASE("a horizontal scroll alone wakes a sleeping USB host");
+    setup();
+    sleep_bus();
+    report_mouse_t m;
+    memset(&m, 0, sizeof(m));
+    m.h = 1;
+    chibios_driver.send_mouse(&m);
+    CHECK_EQ(fake_calls.usb_wakeup_host, 1);
+
+    CASE("suspend_wakeup_init_kb() calls suspend_wakeup_init_user()");
+    setup();
+    user_wakeups = 0;
+    suspend_wakeup_init_kb();
+    CHECK_EQ(user_wakeups, 1);
+}
+
 int main(void) {
     case_wrapping();
     case_wakeup_signal();
@@ -535,5 +579,6 @@ int main(void) {
     case_power_down();
     case_bluetooth_state();
     case_in_use();
+    case_mouse_and_hook();
     return TEST_RESULT();
 }

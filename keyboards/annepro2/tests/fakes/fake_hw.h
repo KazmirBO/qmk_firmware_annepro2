@@ -56,6 +56,7 @@ typedef struct {
     uint8_t        tx[FAKE_SD_TX_MAX]; /* every byte written since the last fake_sd_tx_clear() */
     size_t         tx_len;
     uint32_t       overflows; /* writes that did not fit: on the keyboard sdWrite() would have blocked */
+    bool           overflow_ok; /* set by fake_sd_allow_overflow() for the current case */
     uint32_t       starts;
     uint32_t       speed;
 } SerialDriver;
@@ -155,6 +156,8 @@ void matrix_scan_user(void);
 void housekeeping_task_user(void);
 bool process_record_user(uint16_t keycode, keyrecord_t *record);
 layer_state_t layer_state_set_kb(layer_state_t state);
+layer_state_t layer_state_set_user(layer_state_t state);
+bool          led_update_user(led_t led_state);
 
 /* rgb_matrix: the features are the ones of the keymap, the state is a variable of the test. */
 #define RGB_MATRIX_EFFECT_MAX 40
@@ -209,6 +212,10 @@ void   fake_sd_tx_clear(SerialDriver *sd); /* forget what was written and empty 
 void   fake_sd_tx_forget(SerialDriver *sd); /* forget what was written, the output queue keeps its fill level */
 void   fake_sd_set_capacity(SerialDriver *sd, uint16_t capacity);
 void   fake_sd_set_free(SerialDriver *sd, int32_t free_bytes); /* fixed free space; -1 goes back to capacity - used */
+/* A write that does not fit fails the program (TEST_RESULT()) unless the case allowed it; fake_reset() ends the
+ * permission. fake_overflow_failures counts the unexpected ones over the whole program. */
+void            fake_sd_allow_overflow(SerialDriver *sd);
+extern uint32_t fake_overflow_failures;
 void   fake_sd_drain(SerialDriver *sd, uint32_t n);            /* the UART sent n bytes */
 
 /* The device record the BLE serial number is taken from (the UDID is at +8, 16 bytes). Blank (zeros) after reset. */
@@ -244,5 +251,9 @@ typedef struct {
     int housekeeping_user;
     int eeconfig_flush;
     int matrix_scan_user, process_record_user;
+    int pre_init_user, post_init_user;   /* the weak defaults count; a keymap's own hooks do not */
+    int pin_input_low, pin_input_low_pin; /* gpio_set_pin_input_low(): calls and the last pin */
+    size_t clear_keyboard_sd1_at;         /* SD1.tx_len at the last clear_keyboard() */
+    const char *rgb_last;                 /* name of the last rgb_matrix_* adjustment called */
 } fake_calls_t;
 extern fake_calls_t fake_calls;

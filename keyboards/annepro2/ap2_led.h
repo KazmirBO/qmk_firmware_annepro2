@@ -83,7 +83,7 @@ uint16_t ap2_led_tx_space(void);
  * queue for the short commands, which are written at once. The longest burst is one key press that switches the LEDs
  * on in a layer: 30 01 (6 B), LED on (3 copies, 15 B), the mask reset and the layer colour (9 B each) and the key
  * itself (6 B), 45 B. A layer key that resolves in the same scan (hold on other key press) can put its 9-byte layer
- * colour in front of that burst, 53 B in all; the write then waits for at most 5 bytes, under half a millisecond. */
+ * colour in front of that burst, 54 B in all; the write then waits for at most 6 bytes, about half a millisecond. */
 #ifndef AP2_LED_TX_RESERVE
 #    define AP2_LED_TX_RESERVE 48
 #endif
@@ -109,7 +109,8 @@ void ap2_rgb_flush_pending(void);
 /* Send every row again at the next flush, e.g. after the LED MCU was turned on (rgb_driver.c). */
 void ap2_rgb_resend_all(void);
 
-/* Blink given key `count` times by masking it with a `color`. Blink takes `hundredths` of a second */
+/* Blink given key `count` times by masking it with a `color`. Each of the 2 * count phases (on, off) lasts `hundredths`
+ * hundredths of a second. */
 void ap2_led_blink(uint8_t row, uint8_t col, ap2_led_t color, uint8_t count, uint8_t hundredths);
 /* Cancel any running blinking */
 void ap2_led_cancel_blink(void);

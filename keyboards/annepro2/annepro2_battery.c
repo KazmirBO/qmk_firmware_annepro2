@@ -25,7 +25,9 @@
 #    include "annepro2_ble.h"
 
 /* ADC registers (base 0x40010000), offsets as used by the stock firmware. */
-#    define AP2_ADC_REG(off) (*(volatile uint32_t *)(0x40010000u + (off)))
+#    ifndef AP2_ADC_REG
+#        define AP2_ADC_REG(off) (*(volatile uint32_t *)(0x40010000u + (off)))
+#    endif
 #    define AP2_ADC_CR AP2_ADC_REG(0x000)   /* control */
 #    define AP2_ADC_LST0 AP2_ADC_REG(0x004) /* conversion list, 5 bits per entry */
 #    define AP2_ADC_DR0 AP2_ADC_REG(0x030)  /* result of the first list entry, 12 bits */
@@ -136,7 +138,8 @@ bool annepro2_battery_read(uint16_t *raw) {
  * starts at a whole millivolt value, so this gives the same step as the BLE MCU's floating point. */
 #    define AP2_BATTERY_MV(raw) ((uint32_t)(raw) * 6200u / 4095u)
 
-/* The BLE MCU reports its first step (10 %) from 3.4 V and 0 % below it; the correction is applied up to this voltage. */
+/* The BLE MCU reports its first step (10 %) from 3.4 V and 0 % below it; the correction is applied up to this
+ * voltage. */
 #    define AP2_BATTERY_BLE_FIRST_STEP_MV 3400u
 #    define AP2_BATTERY_CORRECTION_END_MV 3600u
 
@@ -159,7 +162,7 @@ static uint8_t percent_from_mv(uint32_t mv) {
 
 #    if AP2_BATTERY_EMPTY_MV < AP2_BATTERY_BLE_FIRST_STEP_MV
 /* The raw reading for a voltage. One count is about 1.5 mV, so not every voltage has an exact reading: take the rounded
- * down one, and the next one when that gives exactly mv or when the rounded down one falls below the percent of mv.
+ * down one, or the next one when the next one gives exactly mv or the rounded down one falls below the percent of mv.
  * The reading then has the percent of mv: the next count is at most 1 mV above mv, and the percent changes at most
  * every 5 mV. */
 static uint16_t raw_from_mv(uint32_t mv) {

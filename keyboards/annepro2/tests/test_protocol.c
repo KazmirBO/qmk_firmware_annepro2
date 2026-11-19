@@ -200,6 +200,7 @@ static void case_transmit(void) {
 
     CASE("one message: header and payload");
     reset_firmware();
+    fake_sd_allow_overflow(&SD0); /* the bytes are checked here, not the flow: nothing drains the queue */
     proto_tx(0x32, payload, 4, 1);
     const uint8_t exp1[] = {0x7a, 0x1d, 0x32, 1, 4, 1, 4, 7, 10};
     CHECK_EQ(SD0.tx_len, sizeof(exp1));
@@ -208,6 +209,7 @@ static void case_transmit(void) {
 
     CASE("the id counts up by one per call, not per copy");
     reset_firmware();
+    fake_sd_allow_overflow(&SD0); /* the bytes are checked here, not the flow: nothing drains the queue */
     proto_tx(0x01, NULL, 0, 3);
     proto_tx(0x02, NULL, 0, 1);
     const uint8_t exp2[] = {0x7a, 0x1d, 0x01, 1, 0, 0x7a, 0x1d, 0x01, 1, 0,
@@ -217,6 +219,7 @@ static void case_transmit(void) {
 
     CASE("count copies; the receiver delivers one");
     reset_firmware();
+    fake_sd_allow_overflow(&SD0); /* the bytes are checked here, not the flow: nothing drains the queue */
     proto_tx(0x32, payload, 10, 3);
     CHECK_EQ(SD0.tx_len, 3 * PROTO_TX_MESSAGE_SIZE(10));
     rx_start();
@@ -227,11 +230,13 @@ static void case_transmit(void) {
 
     CASE("count 0 sends nothing");
     reset_firmware();
+    fake_sd_allow_overflow(&SD0); /* the bytes are checked here, not the flow: nothing drains the queue */
     proto_tx(0x32, payload, 10, 0);
     CHECK_EQ(SD0.tx_len, 0);
 
     CASE("a payload above 64 bytes is cut to 64");
     reset_firmware();
+    fake_sd_allow_overflow(&SD0); /* the bytes are checked here, not the flow: nothing drains the queue */
     proto_tx(0x32, payload, 80, 1);
     CHECK_EQ(SD0.tx_len, PROTO_TX_MESSAGE_SIZE(64));
     CHECK_EQ(SD0.tx[4], 64);
@@ -240,6 +245,7 @@ static void case_transmit(void) {
 
     CASE("the id wraps from 255 to 0 and the receiver still delivers every message");
     reset_firmware();
+    fake_sd_allow_overflow(&SD0); /* the bytes are checked here, not the flow: nothing drains the queue */
     for (int i = 0; i < 600; i++) proto_tx(0x10, payload, 1, 1);
     CHECK_EQ(SD0.tx_len, 600 * PROTO_TX_MESSAGE_SIZE(1));
     CHECK_EQ(decode_tx(&SD0, NULL), 600);

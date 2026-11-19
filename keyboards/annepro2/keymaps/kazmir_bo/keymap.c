@@ -41,9 +41,9 @@ const uint16_t keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 
     /* KC_AP2_BT_UNPAIR (40 05) deletes the bonds of all four slots, so it acts only after being held for 3 s
-     * (AP2_BLE_UNPAIR_HOLD_MS). Pairing a slot again replaces only the bond of that slot. RM_SPDU sets the speed of the rgb_matrix effect
-     * (Shift: slower); KC_AP_LED_SPEED would only set the speed of the LED MCU's own profiles, which do not run while
-     * rgb_matrix drives the LEDs.
+     * (AP2_BLE_UNPAIR_HOLD_MS). Pairing a slot again replaces only the bond of that slot. RM_SPDU sets the speed of the
+     * rgb_matrix effect (Shift: slower); KC_AP_LED_SPEED would only set the speed of the LED MCU's own profiles, which
+     * do not run while rgb_matrix drives the LEDs.
      * QK_BOOT puts all three MCUs into IAP, so it acts only once Esc, pressed on FN2, has been held for 1 s
      * (BOOT_HOLD_MS below; FN2 may be released meanwhile); a short press does nothing.
      * KC_AP_LED_NEXT_INTENSITY dims on the LED MCU: each press takes another 30 off every colour channel (7 steps; the
@@ -69,7 +69,8 @@ uint16_t get_tapping_term(uint16_t keycode, keyrecord_t *record) {
 
 void keyboard_post_init_user(void) {
     /* NKRO_ENABLE builds NKRO in, but this keymap has no key that turns it on (no magic or command keys) and EEPROM
-     * keeps the old value, so turn it on for USB here. The Bluetooth driver turns it off and back on when it switches. */
+     * keeps the old value, so turn it on for USB here. The Bluetooth driver turns it off and back on when it
+     * switches. */
     keymap_config.nkro = true;
 }
 

@@ -23,6 +23,7 @@ int main(void) {
     int            sent        = 0;
     for (uint32_t ms = 1; ms <= 1400000; ms++) {
         fake_advance(1);
+        fake_sd_drain(&SD1, 11); /* 115200 baud: about 11.5 bytes leave per ms */
         const size_t before = SD1.tx_len;
         ble_handshake_task();
         if (SD1.tx_len != before) {

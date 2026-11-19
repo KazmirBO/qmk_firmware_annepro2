@@ -1,6 +1,6 @@
 # Anne Pro 2 (C18): analiza fabrycznego firmware i port QMK
 
-Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6). Uzupełnienie z 2026-11-03 (mapa fabryczna MCU, matryca, wskaźniki i uśpienie LED, suma kontrolna obrazu BLE i kilka rozstrzygniętych niewiadomych) opisuje `09-metoda-i-weryfikacja.md` §8, a uzupełnienie z 2026-11-13 (odroczone kasowanie bondów, zrywanie łącza przez `40 04`, warstwy 3 i 4 mapy MCU, flaga LED bez odczytów, poprawki portu) `09-metoda-i-weryfikacja.md` §9.
+Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwzględnieniem Bluetootha, oparta na statycznej analizie fabrycznego firmware trzech procesorów i aplikacji ObinsKit 1.2.11, oraz opis zmian w porcie QMK, które z niej wynikają. Stan na 2026-10-27; każde twierdzenie zostało tego dnia ponownie sprawdzone u źródła (`09-metoda-i-weryfikacja.md` §6). Uzupełnienie z 2026-11-03 (mapa fabryczna MCU, matryca, wskaźniki i uśpienie LED, suma kontrolna obrazu BLE i kilka rozstrzygniętych niewiadomych) opisuje `09-metoda-i-weryfikacja.md` §8, a uzupełnienie z 2026-11-13 (odroczone kasowanie bondów, zrywanie łącza przez `40 04`, warstwy 3 i 4 mapy MCU, flaga LED bez odczytów, poprawki portu) `09-metoda-i-weryfikacja.md` §9. Opis portu, testy na sprzęcie i niewiadome (`07-port-qmk-i-narzedzia.md`, `08-testy-na-sprzecie.md`, `10-niewiadome.md`) uzupełniano też później, ostatnio 2026-11-19; daty i zakres uzupełnień podaje początek `07-port-qmk-i-narzedzia.md`.
 
 ## 1. Źródła
 
@@ -50,16 +50,16 @@ Dokumentacja działania klawiatury Anne Pro 2 w rewizji C18, ze szczególnym uwz
 | `01-architektura.md` | procesory, łącza, podział odpowiedzialności, system, pamięć, piny MCU, schemat |
 | `02-protokol.md` | format ramki, węzły i routing, fragmentacja, kanał przez BLE, polecenia wszystkich odbiorców, ruch wysyłany samodzielnie |
 | `03-mcu.md` | MCU 2.36: procesy, czas, handshake, wybór wyjścia, sloty, kody klawiszy i mapa fabryczna, sen, bateria, pamięć SPI, USB, akcelerometr, rekord urządzenia, wykaz adresów |
-| `04-led.md` | LED 2.33: system, polecenia, efekty, wskaźniki, matryca i piny, jasność, uśpienie |
-| `05-ble.md` | BLE 2.05: obraz i banki, UART, polecenia, GATT i HID, rozgłaszanie i sloty, bondy, bateria, zasilanie, aktualizacja, odczyt z urządzenia, bezpieczeństwo |
-| `06-obinskit-i-bootloader.md` | ObinsKit 1.2.11: transport, nazwy poleceń, aktualizacja; bootloader i odczyt `--info` |
-| `07-port-qmk-i-narzedzia.md` | port QMK i AnnePro2-Tools względem oryginału, keymapa `kazmir_bo`, buildy, historia zmian |
-| `08-testy-na-sprzecie.md` | testy na klawiaturze, czego nie sprawdzono, procedury (po wgraniu, `btmon`, podsłuch UART) |
-| `09-metoda-i-weryfikacja.md` | narzędzia, powtórzenie analizy, import w Ghidrze, dane RW, raport weryfikacji |
-| `10-niewiadome.md` | otwarte pytania i co by je rozstrzygnęło |
+| `04-led.md` | LED 2.33: system, tablica poleceń, polecenia, efekty, efekt poziomicy, wskaźniki i ich pierwszeństwo, matryca LED (piny i jasność), uśpienie |
+| `05-ble.md` | BLE 2.05: identyfikacja, obraz i banki, UART, polecenia od MCU, ramki do MCU, GATT i HID, rozgłaszanie i sloty, bondy, bateria, zasilanie, aktualizacja, odczyt z urządzenia, bezpieczeństwo |
+| `06-obinskit-i-bootloader.md` | ObinsKit 1.2.11: źródło i metoda, transport, nazwy poleceń, aktualizacja, nazwy w interfejsie; bootloader i odczyt `--info` |
+| `07-port-qmk-i-narzedzia.md` | port QMK i AnnePro2-Tools względem oryginału, czego port nie robi, keymapa `kazmir_bo`, buildy, historia zmian |
+| `08-testy-na-sprzecie.md` | wyniki testów na klawiaturze, czego nie sprawdzono, procedury (po wgraniu, `btmon`, podsłuch UART) |
+| `09-metoda-i-weryfikacja.md` | zakres, narzędzia, powtórzenie analizy, import w Ghidrze, dane RW, raport weryfikacji, ograniczenia, uzupełnienia z 2026-11-03 i 2026-11-13 |
+| `10-niewiadome.md` | otwarte pytania i co by je rozstrzygnęło; pytania rozstrzygnięte 2026-11-03 i 2026-11-13 |
 
 ## 5. Poza tym katalogiem
 
-- `analiza/`: skrypty importu do Ghidry i kontroli, eksporty pseudokodu i listingów, wyniki weryfikacji (`analiza/wyniki/`) i rejestr twierdzeń (`analiza/rejestr-twierdzen.md`). Od 2026-11-04 katalog leży w forku jako `keyboards/annepro2/lokalne/analiza/` (poza kontrolą wersji), a obrazy fabryczne w `lokalne/obrazy-fabryczne/`; ścieżki `analiza/...` w tej dokumentacji oznaczają to miejsce.
-- `propozycje/`: archiwalne patche z 2026-10-14 i kopie plików sprzed zmian; ich treść jest dziś w commitach forka.
+- `analiza/`: skrypty importu do Ghidry i kontroli, eksporty pseudokodu i listingów, wyniki weryfikacji (`analiza/wyniki/`) i rejestr twierdzeń (`analiza/rejestr-twierdzen.md`). Od 2026-11-04 katalog leży w forku jako `keyboards/annepro2/lokalne/analiza/` (poza kontrolą wersji, więc nie ma go w klonie repozytorium), a obrazy fabryczne w `lokalne/obrazy-fabryczne/`; ścieżki `analiza/...` w tej dokumentacji oznaczają to miejsce.
+- `propozycje/`: archiwalne patche z 2026-10-14 i kopie plików sprzed zmian (poza kontrolą wersji, więc nie ma ich w klonie repozytorium); ich treść jest dziś w commitach forka.
 - `do-wgrania/` (obraz portu dla keymapy `kazmir_bo`, narzędzie do wgrywania i instrukcja) i `docs.bak-2026-10-27/` (dokumentacja sprzed przebudowy, do której odwołują się wyniki weryfikacji) zostały usunięte 2026-11-04 i nie ma ich już w projekcie.

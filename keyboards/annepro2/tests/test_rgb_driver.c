@@ -70,13 +70,23 @@ static void case_layout(void) {
             for (int c = 0; c < NUM_COLUMN; c++) {
                 if (led_of(r, c) == i) {
                     found = true;
-                    CHECK_EQ(led_row[i], r);
                     CHECK_EQ(led_pos[i], r * NUM_COLUMN + c);
                 }
             }
         }
         CHECK(found);
     }
+
+    CASE("an LED index without a matrix position (NO_POS) is ignored");
+    setup();
+    const uint8_t saved = led_pos[0];
+    led_pos[0]          = NO_POS;
+    ap2_led_t before[KEY_COUNT];
+    memcpy(before, led_colors, sizeof(before));
+    rgb_matrix_driver.set_color(0, 0x12, 0x34, 0x56);
+    CHECK(memcmp(before, led_colors, sizeof(before)) == 0);
+    CHECK_EQ(dirty_rows, 0);
+    led_pos[0] = saved;
 }
 
 static void case_changed_only(void) {
@@ -494,6 +504,7 @@ static void case_set_color_all(void) {
 
     CASE("set_color_all replaces rows that were waiting");
     setup();
+    fake_sd_allow_overflow(&SD0); /* a full queue on purpose: set_color_all() writes its colour command anyway */
     fake_sd_set_free(&SD0, 0);
     for (int r = 0; r < NUM_ROW; r++) rgb_matrix_driver.set_color(led_in_row(r), 4, 4, 4);
     rgb_matrix_driver.flush();

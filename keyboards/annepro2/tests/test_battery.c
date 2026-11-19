@@ -546,6 +546,16 @@ static void case_display(void) {
     CHECK_EQ(SD0.overflows, 0);
 }
 
+/* annepro2_battery_init(): "one-shot mode, list of one entry", then enabled. The register is zero after a power-on
+ * reset, so a start from a register with other bits set (a soft reset) must still end with only the enable bit. */
+static void case_init(void) {
+    CASE("the ADC init clears every control bit but the enable bit, whatever the register held");
+    setup();
+    FAKE_ADC_REG(0x000) = 0xFFFFFFFFu;
+    annepro2_battery_init();
+    CHECK_EQ(FAKE_ADC_REG(0x000), 0x80u);
+}
+
 int main(void) {
     case_percent();
     case_scaled();
@@ -553,5 +563,6 @@ int main(void) {
     case_backoff();
     case_history();
     case_display();
+    case_init();
     return TEST_RESULT();
 }

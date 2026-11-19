@@ -13,6 +13,10 @@
 #include "../protocol.c"
 #include "../rgb_driver.c"
 
+/* The tests assume the layout of the keyboard: the matrix of the keymap's LAYOUT and the key count of the LED code. */
+_Static_assert(MATRIX_ROWS == NUM_ROW && MATRIX_COLS == NUM_COLUMN && KEY_COUNT == NUM_ROW * NUM_COLUMN,
+               "the tests assume the 5 x 14 matrix of the Anne Pro 2");
+
 /* Put the static state of every module back to its value at power on, and reset the fakes (fake_reset()). The statics
  * are listed by hand: a new static variable in a source has to be added here, or a state can leak from one test case to
  * the next (the tests then fail in an order dependent way, which is the sign to look here). */
@@ -28,9 +32,11 @@ static void reset_firmware(void) {
     ble_rx_pos   = 0;
     ble_rx_skip  = 0;
     ble_rx_timer = 0;
+#ifdef RGB_MATRIX_ENABLE
     led_mcu_on = false;
     led_power_timer = 0;
     led_repairs     = 0;
+#endif
     usb_gone         = false;
     usb_wake_pending = false;
     usb_keys_down    = false;
@@ -39,21 +45,31 @@ static void reset_firmware(void) {
     memset(&ble_saved_report, 0, sizeof(ble_saved_report));
     ble_saved_mods  = 0;
     ble_state_saved = false;
+#ifdef AP2_BLE_SLOT_TAP_HOLD
     memset(slots, 0, sizeof(slots));
+#endif
+#if AP2_BLE_UNPAIR_HOLD_MS > 0
     unpair_key.timer = 0;
     unpair_key.row   = UNPAIR_IDLE;
     unpair_key.col   = 0;
+#endif
+#ifdef AP2_BT_SWITCH
     bt_switch_applied = -1;
     bt_switch_raw     = false;
     bt_switch_timer   = 0;
+#endif
     powered_down = false;
+#ifdef RGB_MATRIX_ENABLE
     led_setup_checked = false;
     led_check_timer   = 0;
+#endif
     fake_reset();
 
     /* annepro2_ble.c */
     last_host_driver = NULL;
+#ifdef NKRO_ENABLE
     lastNkroStatus   = false;
+#endif
     ble_capslock     = false;
     ble_slot         = -1;
     pair_pending     = false;
@@ -61,6 +77,7 @@ static void reset_firmware(void) {
     ble_timer        = 0;
     broadcast_last   = -1;
 
+#ifdef AP2_BLE_BATTERY
     /* annepro2_battery.c */
     fail_count = 0;
     fail_timer = 0;
@@ -75,6 +92,7 @@ static void reset_firmware(void) {
     display_set   = false;
     display_lit   = 0;
     memset(&display_color, 0, sizeof(display_color));
+#endif
 
     /* ap2_led.c */
     memset(led_mask, 0, sizeof(led_mask));
@@ -88,7 +106,9 @@ static void reset_firmware(void) {
     /* protocol.c */
     msg_id = 0;
     memset(&proto, 0, sizeof(proto));
+    proto_init(&proto, led_receive); /* as keyboard_pre_init_kb() leaves it */
 
+#ifdef RGB_MATRIX_ENABLE
     /* rgb_driver.c */
     dirty_rows    = 0;
     pending_rows  = 0;
@@ -97,4 +117,5 @@ static void reset_firmware(void) {
     refresh_timer = 0;
     memset(sent_hash, 0, sizeof(sent_hash));
     sent_valid = 0;
+#endif
 }

@@ -266,10 +266,54 @@ static void case_hold(void) {
     }
 }
 
+/* LED-3: ap2_led_cancel_blink() sends a cancel only while a blink may still be running (blink_end), so a second call,
+ * or one from a path that never started a blink, writes nothing to the LED UART. */
+static void case_cancel(void) {
+    CASE("LED-3: a blink cancelled twice sends one cancel");
+    setup();
+    ap2_led_blink(0, 1, (ap2_led_t){.p.blue = 255, .p.alpha = 255}, 8, 50);
+    fake_sd_tx_clear(&SD0);
+    fake_advance(100);
+    ap2_led_cancel_blink();
+    CHECK_EQ(count_cmd(CMD_LED_KEY_BLINK), 1);
+    fake_sd_tx_clear(&SD0);
+    fake_advance(100);
+    ap2_led_cancel_blink();
+    CHECK_EQ(SD0.tx_len, 0);
+
+    /* ap2_led.c ap2_led_blink(): the LED MCU needs 2 * count phases of hundredths * 10 ms, and a quarter more because
+     * it sleeps in whole ticks: 8 x 50 gives 10000 ms. A cancel before that is sent, one after it is not. */
+    CASE("a blink counts as running for 2 * count * hundredths * 10 ms plus a quarter");
+    setup();
+    ap2_led_blink(0, 1, (ap2_led_t){.p.blue = 255, .p.alpha = 255}, 8, 50);
+    fake_advance(9999);
+    fake_sd_tx_clear(&SD0);
+    ap2_led_cancel_blink();
+    CHECK_EQ(count_cmd(CMD_LED_KEY_BLINK), 1);
+    setup();
+    ap2_led_blink(0, 1, (ap2_led_t){.p.blue = 255, .p.alpha = 255}, 8, 50);
+    fake_advance(10000);
+    fake_sd_tx_clear(&SD0);
+    ap2_led_cancel_blink();
+    CHECK_EQ(SD0.tx_len, 0);
+
+    /* ap2_led.c ap2_led_cancel_blink() names the key that blinks (row, column; the column goes up to 13). */
+    CASE("the cancel of a blink on column 12 names column 12");
+    setup();
+    ap2_led_blink(2, 12, (ap2_led_t){.p.blue = 255, .p.alpha = 255}, 8, 50);
+    fake_sd_tx_clear(&SD0);
+    fake_advance(100);
+    ap2_led_cancel_blink();
+    CHECK_EQ(decode_tx(&SD0, NULL), 1);
+    CHECK_EQ(dec_msgs[0].payload[0], 2);
+    CHECK_EQ(dec_msgs[0].payload[1], 12);
+}
+
 int main(void) {
     case_intensity();
     case_check();
     case_scan_n1();
     case_hold();
+    case_cancel();
     return TEST_RESULT();
 }
