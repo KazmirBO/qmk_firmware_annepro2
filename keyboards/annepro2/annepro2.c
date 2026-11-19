@@ -334,6 +334,17 @@ static void leds_switch(bool on) {
 #endif
 }
 
+/* Whether the LED keys find the LEDs on. With rgb_matrix it is the state led_sync() last gave the LED MCU, as long as
+ * the LED MCU does not report its matrix off (it restarted and is not set up again: the key then sets it up). The
+ * status alone cannot tell, because a sticky key keeps the matrix on after CMD_LED_OFF and it then reports it on. */
+static bool leds_on(void) {
+#ifdef RGB_MATRIX_ENABLE
+    return led_mcu_on && ap2_led_status.matrix_enabled;
+#else
+    return ap2_led_status.matrix_enabled;
+#endif
+}
+
 /*
  * The keyboard builds with NO_USB_STARTUP_CHECK (c15/c18 rules.mk). Otherwise QMK stops the whole keyboard task while
  * the USB host sleeps, which also stops typing over Bluetooth while the cable only charges. Instead:
@@ -846,7 +857,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_ON:
-                if (ap2_led_status.matrix_enabled) {
+                if (leds_on()) {
                     ap2_led_next_profile();
                 } else {
                     leds_switch(true);
@@ -855,7 +866,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
                 return false;
 
             case KC_AP_LED_TOG:
-                if (ap2_led_status.matrix_enabled) {
+                if (leds_on()) {
                     leds_switch(false);
                 } else {
                     leds_switch(true);
