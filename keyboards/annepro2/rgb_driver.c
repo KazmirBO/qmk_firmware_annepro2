@@ -24,8 +24,10 @@
 #    include "timer.h"
 #    include "keyboard.h"
 
+/* Where each rgb_matrix LED sits in led_colors (ROWCOL2IDX of its row and column), or NO_POS for none; the row is
+ * led_pos / NUM_COLUMN. */
+#    define NO_POS 0xff
 static uint8_t led_pos[RGB_MATRIX_LED_COUNT];
-static uint8_t led_row[RGB_MATRIX_LED_COUNT];
 
 /* Rows whose colours changed since the last flush; bit N = row N. */
 static uint8_t dirty_rows = 0;
@@ -110,13 +112,12 @@ void ap2_rgb_resend_all(void) {
 }
 
 static void init(void) {
-    memset(led_row, 0xff, sizeof(led_row));
+    memset(led_pos, NO_POS, sizeof(led_pos));
     unsigned int i = 0;
     for (unsigned int y = 0; y < NUM_ROW; y++) {
         for (unsigned int x = 0; x < NUM_COLUMN; x++) {
             if (g_led_config.matrix_co[y][x] != NO_LED) {
                 led_pos[g_led_config.matrix_co[y][x]] = i;
-                led_row[g_led_config.matrix_co[y][x]] = y;
             }
             i++;
         }
@@ -141,12 +142,12 @@ static inline ap2_led_t pack_color(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 static void set_color(int index, uint8_t r, uint8_t g, uint8_t b) {
-    if (led_row[index] == 0xff) return;
+    if (led_pos[index] == NO_POS) return;
     const ap2_led_t color = pack_color(r, g, b);
     ap2_led_t      *led   = &led_colors[led_pos[index]];
     if (led->rgb == color.rgb) return; /* unchanged: nothing to send */
     *led = color;
-    dirty_rows |= (1 << led_row[index]);
+    dirty_rows |= 1 << (led_pos[index] / NUM_COLUMN);
 }
 
 static void set_color_all(uint8_t r, uint8_t g, uint8_t b) {

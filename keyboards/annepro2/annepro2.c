@@ -385,6 +385,12 @@ bool annepro2_usb_host_in_use(void) {
     return USB_DRIVER.state == USB_ACTIVE || usb_host_asleep();
 }
 
+/* The scan runs at QMK's suspend rhythm: the host sleeps and the reports go to it. usb_suspend_task() waits then, and
+ * idle_task() must not wait on top of it. */
+static bool usb_sleep_pace(void) {
+    return usb_host_asleep() && !annepro2_ble_is_active();
+}
+
 static void usb_signal_wakeup(void) {
     usb_wake_signal = timer_read();
     if (USB_DRIVER.status & USB_GETSTATUS_REMOTE_WAKEUP_ENABLED) usbWakeupHost(&USB_DRIVER);
@@ -456,7 +462,7 @@ static void usb_suspend_task(void) {
     }
     /* A key held since a request is signalled again, as QMK's loop does while a key is down. */
     if (usb_keys_down && (usb_wake_pending || usb_gone) && usb_bus_asleep() && timer_elapsed(usb_wake_signal) >= AP2_USB_WAKE_RETRY_MS) usb_signal_wakeup();
-    if (!usb_host_asleep() || annepro2_ble_is_active()) {
+    if (!usb_sleep_pace()) {
         /* Switched to Bluetooth, or no host after all: undo the power down here, no USB wakeup will do it. */
         if (powered_down && USB_DRIVER.state != USB_ACTIVE) suspend_wakeup_init_quantum();
         powered_down = false;
@@ -748,7 +754,7 @@ static bool idle_key_down(void) {
 static void idle_task(void) {
 #if AP2_IDLE_SCAN_MS > 0
     /* An active USB host gets no wait; a sleeping one that gets the reports is paced by usb_suspend_task(). */
-    if (USB_DRIVER.state == USB_ACTIVE || (annepro2_usb_host_in_use() && !annepro2_ble_is_active())) return;
+    if (USB_DRIVER.state == USB_ACTIVE || usb_sleep_pace()) return;
     bool awake = last_input_activity_elapsed() < AP2_IDLE_AFTER_MS || idle_key_down();
 #    ifdef RGB_MATRIX_ENABLE
     awake = awake || ap2_rgb_lit(); /* a lit effect keeps its frame rate */
